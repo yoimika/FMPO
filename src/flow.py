@@ -11,7 +11,8 @@ from rollouts import Bags
 class FlowConfig:
     deterministic: bool = False
     discretize_t: bool = True
-    ratio_clip: bool = False
+    ratio_clip: bool = True
+    normalize_rewards: bool = False
 
     clip_epsilon: float = 0.05
 
@@ -27,9 +28,11 @@ class FlowConfig:
     time_embed_dim: int = 1
 
     time_steps: int = 10
-    batch_size: int = 512
+    batch_size: int = 4096
 
     steps_per_training_steps: int = 16
+
+    reward_scale: float = 1.0
 
 class Flow(nn.Module):
     def __init__(self, config: FlowConfig):
@@ -103,7 +106,12 @@ class Flow(nn.Module):
         return out
     
     def compute_fpo_loss(self, bags: Bags, rewards):
-        rewards_norm = (rewards - rewards.mean()) / (rewards.std() + 1e-8)
+        if self.config.normalize_rewards:
+            rewards_norm = (rewards - rewards.mean()) / (rewards.std() + 1e-8)
+        else:
+            rewards_norm = rewards / (rewards.std() + 1e-8)
+        rewards_norm = rewards_norm * self.config.reward_scale
+
         x0 = bags.x0
         eps = bags.x1
         t = bags.t
