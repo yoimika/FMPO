@@ -3,19 +3,7 @@ import gymnasium_robotics
 gym.register_envs(gymnasium_robotics)
 import numpy as np
 import torch
-
-def from_numpy(obj):
-    if isinstance(obj, np.ndarray):
-        return torch.from_numpy(obj).float()
-    return obj
-
-def from_tensor(obj):
-    if isinstance(obj, torch.Tensor):
-        return obj.cpu().numpy()
-    return obj
-
-def from_dict(obj):
-    return {k: from_numpy(v) for k, v in obj.items()}
+from utils import from_numpy, from_tensor, from_dict, gym_robotics_observation_concat
 
 class RoboticsWrapper(gym.Wrapper):
     def __init__(self, env: gym.Env):
@@ -25,21 +13,15 @@ class RoboticsWrapper(gym.Wrapper):
 
         self.observation_space = gym.spaces.Box(-np.inf, np.inf, shape=(_observation.shape[0] + _desired_goal.shape[0],), dtype=np.float32)
         self.action_space = env.action_space
-    
-    def observation(self, obs):
-        _obs = obs['observation']
-        _goal = obs['desired_goal']
-        ret_obs = np.concatenate([_obs, _goal], axis=-1)
-        return ret_obs
 
     def reset(self, **kwargs):
         obs, info = self.env.reset(**kwargs)
-        obs = self.observation(obs)
+        obs = gym_robotics_observation_concat(obs)
         return obs, info
 
     def step(self, action):
         obs, reward, terminated, truncated, info = self.env.step(action)
-        return self.observation(obs), reward, terminated, truncated, info
+        return gym_robotics_observation_concat(obs), reward, terminated, truncated, info
     
 
 class TorchWrapper(gym.Wrapper):
