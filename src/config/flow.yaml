@@ -1,5 +1,14 @@
 env_name: "FetchPickAndPlace-v4"
 
+# Base Config
+flow_cfg: &base_train_cfg
+  epoches: 256
+  batch_size: 256
+  learning_rate: 1.0e-4
+  optim_name: 'Adam'
+  save_dir: './save/'
+
+# Model
 flow: &base_flow
   sde_sigma: 0.5
   time_steps: 10
@@ -11,16 +20,53 @@ flow: &base_flow
   use_noise_to_supervise: False
   use_new_t_for_training: False
 
-flow_train: &base_flow_train
-  epoches: 256
-  batch_size: 256
-  learning_rate: 1.0e-4
-  optim_name: 'Adam'
-  save_dir: './save/'
+flow2: &flow2
+  <<: *base_flow
+  hidden_layers: [256, 256, 256, 128]
+
+flow3: &flow3
+  <<: *base_flow
+  hidden_layers: [256, 256, 256, 128, 64]
+
+flow4: &flow4
+  <<: *base_flow
+  hidden_layers: [256, 256, 256, 128, 64, 32]
+
+# Imitation Learning Config
+il_flow_train: &il_train_cfg
+  <<: *base_train_cfg
   teacher_dataset_fp: './save/sac-teacher.pkl'
 
-il_train1_flow:
-  <<: *base_flow
+il_flow_train2:
+  <<: *il_train_cfg 
+  optim_name: "AdamW"
+  save_file_name: "flow-imitation2.pth"
 
-il_train1_flow_train:
-  <<: *base_flow_train
+il_flow_train3:
+  <<: *il_train_cfg
+  optim_name: "AdamW"
+  save_file_name: "flow-imitation3.pth"
+  # Attention: Large batch size may lead to overfit which cause poor generalization in test.
+  batch_size: 256 
+
+il_flow_train4:
+  <<: *il_train_cfg
+  optim_name: "AdamW"
+  save_file_name: "flow-imitation4.pth"
+  # Attention: Large batch size may lead to overfit which cause poor generalization in test.
+  batch_size: 256 
+
+# Reinforcement Learning Config
+flow5: 
+  <<: *flow3
+  use_ode: True
+  use_new_t_for_training: True
+
+rl_flow_train: &rl_train_cfg
+  <<: *base_train_cfg
+  batch_size: 2500
+  epoches: 1000
+  num_envs: 10
+  save_file_name: "flow-rl.pth"
+  base_model_file_name: "flow-imitation3.pth"
+  algorithm: "PPO"

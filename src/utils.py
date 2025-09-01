@@ -5,6 +5,9 @@ import torch
 import numpy as np
 from functools import reduce
 
+def print_green(str: str):
+    print(f"\033[92m{str}\033[0m")
+
 def from_numpy(obj):
     if isinstance(obj, np.ndarray):
         return torch.from_numpy(obj).float()

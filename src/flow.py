@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 import gymnasium as gym
 from copy import deepcopy as dc
 
+from config.configs import RLTrainConfig
+
 def make_layers(layers_info: list[int]):
     layers = []
     for idx in range(len(layers_info)-1):
@@ -45,9 +47,68 @@ class TimeScheduler:
     
 @dataclass
 class ActionInfo:
-    x1: Tensor # (B, act_dim)
-    t: Tensor  # (B, steps, 1)
-    cfm_loss: Tensor # (B, 1)
+    x1: Tensor # (B, sample_dim, act_dim)
+    t: Tensor  # (B, sample_dim, 1)
+    cfm_loss: Tensor # (B, sample_dim, 1)
+
+@dataclass
+class Transition:
+    obs: torch.Tensor
+    next_obs: torch.Tensor
+    action: torch.Tensor
+    reward: torch.Tensor
+    done: torch.Tensor
+    action_info: ActionInfo
+
+class RolloutState(Transition):
+    def __init__(self, transitions: list[Transition]):
+        def stack_tensor(attr):
+            return torch.stack(attr, dim=0)
+        self.obs = stack_tensor([t.obs for t in transitions])
+        self.next_obs = stack_tensor([t.next_obs for t in transitions])
+        self.action = stack_tensor([t.action for t in transitions])
+        self.reward = stack_tensor([t.reward for t in transitions])
+        self.done = stack_tensor([t.done for t in transitions])
+        self.action_info = ActionInfo(
+            cfm_loss=stack_tensor([t.action_info.cfm_loss for t in transitions]),
+            t=stack_tensor([t.action_info.t for t in transitions]),
+            x1=stack_tensor([t.action_info.x1 for t in transitions])
+        )
+    
+    def prepare_batches(self, batch_size):
+        T, B, _ = self.obs.shape
+        # print(T, B)
+        assert T * B % batch_size == 0
+        length = T * B // batch_size
+
+        def _prepare_single_batches(item):
+            suffix = item.shape[2:]
+            return item.view(length, batch_size, *suffix)
+
+        obs = _prepare_single_batches(self.obs)
+        next_obs = _prepare_single_batches(self.next_obs)
+        action = _prepare_single_batches(self.action)
+        reward = _prepare_single_batches(self.reward)
+        done = _prepare_single_batches(self.done)
+
+        cfm_loss = _prepare_single_batches(self.action_info.cfm_loss)
+        t = _prepare_single_batches(self.action_info.t)
+        x1 = _prepare_single_batches(self.action_info.x1)
+
+        return [
+            Transition(
+                obs=obs[i], 
+                next_obs=next_obs[i], 
+                action=action[i], 
+                reward=reward[i], 
+                done=done[i], 
+                action_info=ActionInfo(
+                    cfm_loss=cfm_loss[i], 
+                    t=t[i], 
+                    x1=x1[i]
+                )
+            ) for i in range(length)
+        ]
 
 @dataclass
 class FlowConfig:
@@ -67,6 +128,8 @@ class FlowConfig:
     use_mid_euler: bool = False # mid euler for v_t ((x_t' + x_t)/2) * dt else for forward euler
     use_noise_to_supervise: bool = False # use noise to supervise the flow matching loss
     use_new_t_for_training: bool = False # If true, use new time for training else sample from pervious time steps
+
+    n_sample_dim: int = 8 # Sample times for expectation estimation.
 
     @staticmethod
     def build_from_env(env: gym.Env):
@@ -134,25 +197,32 @@ class Flow(nn.Module):
             sde_sigma = self.config.sde_sigma
             brownian_eps = self.brownian_sampler.sample(noise.shape).to(noise.device)
 
-            time_term = pred_vel + sde_sigma**2 / (2*t) * (noise + (1 - t) * pred_vel)
-            eps_term = sde_sigma * torch.sqrt(dt)
+            # time_term = pred_vel + sde_sigma**2 / (2*t) * (noise + (1 - t) * pred_vel)
+            # eps_term = sde_sigma * torch.sqrt(dt)
 
-            dnoise = noise + time_term * dt + eps_term * brownian_eps
+            # dnoise = noise + time_term * dt + eps_term * brownian_eps
+            eps_term = sde_sigma
+            dnoise = noise + eps_term * brownian_eps
         return dnoise, t, dt
     
     def compute_cfm_loss(self, obs, x0, noise, t, record_grad: bool=False):
         """Compute conditional flow matching loss
 
         Args:
-            obs (B, ob_dim)
-            x0 (B, act_dim)
-            noise (B, act_dim)
-            t (B, 1)
+            obs (*, ob_dim)
+            x0 (*, act_dim)
+            noise (*, act_dim)
+            t (*, 1)
             record_grad (bool)
         
         Returns:
-            (B, 1): Conditional flow matching loss
+            (*, 1): Conditional flow matching loss
         """
+        if len(obs.size()) != len(noise.size()):
+            # obs, x0 (B, dim)
+            # noise, t (B, T, dim)
+            obs = obs.unsqueeze(1).repeat(1, noise.shape[1], 1)
+            x0 = x0.unsqueeze(1).repeat(1, noise.shape[1], 1)
         xt = (1 - t) * x0 + t * noise
         pred_v = self.forward(obs, xt, t)
 
@@ -163,6 +233,42 @@ class Flow(nn.Module):
             cfm_loss = torch.mean((pred_v - noise) ** 2, dim=-1, keepdim=True)  # (B, 1)
 
         return cfm_loss if record_grad else cfm_loss.detach()
+
+    def compute_adv_value(self, transition: Transition):
+        """(B, 1)"""
+        return transition.reward
+
+    
+    def compute_fpo_loss(self, transition: Transition, train_config: RLTrainConfig):
+        """Compute fpo loss.
+
+        Args:
+            transition (Transition)
+
+        Returns: 
+            torch.Tensor: FPO loss
+        """
+        adv = self.compute_adv_value(transition)
+        if True:
+            adv = (adv - adv.mean()) / (adv.std() + 1e-8)
+
+        cfm_loss = self.compute_cfm_loss(transition.obs, transition.action, transition.action_info.x1, transition.action_info.t, record_grad=True).squeeze(dim=-1)
+        old_cfm_loss = transition.action_info.cfm_loss.squeeze(dim=-1)
+        if train_config.average_loss_before_exp:
+            rho = torch.exp(
+                torch.mean(old_cfm_loss, dim=-1, keepdim=True) - torch.mean(cfm_loss, dim=-1, keepdim=True)
+            )
+        else:
+            rho = torch.exp(
+                torch.clip(old_cfm_loss - cfm_loss, -3.0, 3.0)
+            )
+        
+        surr_loss1 = rho * adv
+        surr_loss2 = torch.clip(rho, 1.0 - train_config.clip_epsilon, 1.0 + train_config.clip_epsilon) * adv
+
+        loss = -torch.mean(torch.minimum(surr_loss1, surr_loss2))
+        return loss
+
 
     def sample_action(self, obs: Tensor):
         """Sample an action given the observation.
@@ -180,19 +286,21 @@ class Flow(nn.Module):
         noise = self.noise_sampler.sample((B, action_dim)).to(obs.device)
         curr_t, next_t = self.time_scheduler.get_t(B)
 
-        x1 = dc(noise)
         x, t_path = noise, []
         for _curr_t, _next_t in zip(curr_t, next_t):
             x, t, dt = self.euler_step(obs, _curr_t, _next_t, x)
             t_path.append(t)
         t_path = torch.stack(t_path, dim=0).permute((1, 0, 2)) # (B, steps, 1)
 
+        x1 = self.noise_sampler.sample((B, self.config.n_sample_dim, action_dim)).to(obs.device) # (B, sample_dim, act_dim)
         if self.config.use_new_t_for_training:
-            t = self.t_sampler.sample((B, 1)).to(obs.device)
+            t = self.t_sampler.sample((B, self.config.n_sample_dim, 1)).to(obs.device)
         else:
-            t = t_path[:, torch.randint(0, t_path.shape[1], (B,)), :].squeeze(1) # (B, 1)
+            t = t_path[:, torch.randint(0, t_path.shape[1], (self.config.n_sample_dim, )), :].squeeze(1) # (B, sample_dim, 1)
 
-        ref_cfm_loss = self.compute_cfm_loss(obs, x, x1, t, record_grad=False) # (B, 1)
+        loss_x = x.unsqueeze(1).repeat(1, self.config.n_sample_dim, 1)
+        loss_obs = obs.unsqueeze(1).repeat(1, self.config.n_sample_dim, 1)
+        ref_cfm_loss = self.compute_cfm_loss(loss_obs, loss_x, x1, t, record_grad=False) # (B, sample_dim, 1)
 
         return x, ActionInfo(x1=x1, t=t, cfm_loss=ref_cfm_loss)
     

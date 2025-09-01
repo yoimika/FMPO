@@ -36,7 +36,7 @@ class TorchWrapper(gym.Wrapper):
     def step(self, action):
         _action = from_tensor(action)
         obs, reward, terminated, truncated, info = self.env.step(_action)
-        return from_numpy(obs), from_numpy(reward), terminated, truncated, from_dict(info)
+        return from_numpy(obs), from_numpy(reward), from_numpy(terminated), from_numpy(truncated), from_dict(info)
     
 class VectorTorchWrapper(gym.vector.VectorWrapper):
     def __init__(self, env: gym.vector.VectorEnv, device: torch.device = torch.device('cpu')):
@@ -50,17 +50,17 @@ class VectorTorchWrapper(gym.vector.VectorWrapper):
     def step(self, action):
         _action = from_tensor(action)
         obs, reward, terminated, truncated, info = self.env.step(_action)
-        return from_numpy(obs), from_numpy(reward), terminated, truncated, from_dict(info)
+        return from_numpy(obs), from_numpy(reward), from_numpy(terminated), from_numpy(truncated), from_dict(info)
 
 if __name__ == '__main__':
     env_name = 'FetchPickAndPlace-v4'
     # env = gym.make(env_name)
     env = gym.make_vec(env_name, num_envs=10, vectorization_mode='sync', wrappers=[
-        lambda e: RoboticsWrapper(e),
+        lambda e: RoboticsWrapper(e)
     ])
     print(type(env))
     # env = RoboticsWrapper(env)
-    # env = VectorTorchWrapper(env)
+    env = VectorTorchWrapper(env)
 
     obs, info = env.reset()
     print(len(obs), type(obs), info)
