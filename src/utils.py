@@ -1,6 +1,9 @@
+from gymnasium import Wrapper
+import yaml
 import pickle
 import torch
 import numpy as np
+from functools import reduce
 
 def from_numpy(obj):
     if isinstance(obj, np.ndarray):
@@ -31,4 +34,31 @@ def load_dataset(dataset_fp: str, flat: bool=True):
         for transition in traj:
             ret_data.append(transition)
     return ret_data
-    
+
+def load_yaml(fp):
+    with open(fp, 'r', encoding='utf-8') as f:
+        cfg = yaml.safe_load(f)
+    return cfg
+
+def overwrite_object(obj: object, data: dict):
+    for k, v in data.items():
+        if hasattr(obj, k):
+            setattr(obj, k, v)
+    return obj
+
+def env_wrapper(env, wrappers: list[tuple[Wrapper, dict]]):
+    return reduce(
+        lambda _env, wrapper_args: wrapper_args[0](_env, **wrapper_args[1]),
+        wrappers,
+        env
+    )
+
+if __name__ == '__main__':
+    fp = './config/flow.yaml'
+    from flow import FlowConfig
+    flow_config = FlowConfig()
+    cfg = load_yaml(fp)
+    print(cfg)
+    overwrite_object(flow_config, cfg['flow'])
+
+    print(flow_config)

@@ -1,0 +1,26 @@
+env_name: "FetchPickAndPlace-v4"
+
+flow: &base_flow
+  sde_sigma: 0.5
+  time_steps: 10
+  hidden_layers: [256, 256, 256]
+  use_batch_norm_obs: False
+  use_layer_norm_obs: False
+  use_ode: True
+  use_mid_euler: False
+  use_noise_to_supervise: False
+  use_new_t_for_training: False
+
+flow_train: &base_flow_train
+  epoches: 256
+  batch_size: 256
+  learning_rate: 1.0e-4
+  optim_name: 'Adam'
+  save_dir: './save/'
+  teacher_dataset_fp: './save/sac-teacher.pkl'
+
+il_train1_flow:
+  <<: *base_flow
+
+il_train1_flow_train:
+  <<: *base_flow_train

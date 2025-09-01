@@ -68,12 +68,16 @@ class FlowConfig:
     use_noise_to_supervise: bool = False # use noise to supervise the flow matching loss
     use_new_t_for_training: bool = False # If true, use new time for training else sample from pervious time steps
 
-    def build_from_env(self, env: gym.Env):
+    @staticmethod
+    def build_from_env(env: gym.Env):
+        ret_flow_config = FlowConfig()
+
         obs_dim = env.observation_space.shape[0]
         action_dim = env.action_space.shape[0]
 
-        self.input_dim = obs_dim + action_dim + self.time_steps
-        self.output_dim = action_dim
+        ret_flow_config.input_dim = obs_dim + action_dim + ret_flow_config.time_embed_dim
+        ret_flow_config.output_dim = action_dim
+        return ret_flow_config
 
     @property
     def main_layers_info(self):
