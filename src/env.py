@@ -52,6 +52,22 @@ class VectorTorchWrapper(gym.vector.VectorWrapper):
         obs, reward, terminated, truncated, info = self.env.step(_action)
         return from_numpy(obs), from_numpy(reward), from_numpy(terminated), from_numpy(truncated), from_dict(info)
 
+
+def create_robotics_env(env_name: str, vec: bool, render: bool = False, num_env: int = 1):
+    if vec:
+        env = gym.make_vec(env_name, num_envs=num_env, vectorization_mode='sync', wrappers=[
+            lambda e: RoboticsWrapper(e),
+        ])
+        env = VectorTorchWrapper(env)
+    else:
+        if render:
+            env = gym.make(env_name, render_mode='human')
+        else:
+            env = gym.make(env_name)
+        env = RoboticsWrapper(env)
+        env = TorchWrapper(env)
+    return env
+
 if __name__ == '__main__':
     env_name = 'FetchPickAndPlace-v4'
     # env = gym.make(env_name)

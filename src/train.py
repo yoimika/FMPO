@@ -6,8 +6,13 @@ from tqdm import tqdm
 import os
 from env import *
 from config.configs import FlowTrainConfig, RLTrainConfig
+import argparse
 from algorithm import PPO
 
+parser = argparse.ArgumentParser()
+parser.add_argument('--il', store_true=True, help='imitation learning stage')
+parser.add_argument('--train', store_true=True, help='training stage')
+parser.add_argument('--inst_name', default='rl1', help='instance name')
 
 class FlowTrainer:
     def __init__(self, flow: Flow, config: FlowTrainConfig):
@@ -122,10 +127,9 @@ TRAIN_MAPPING = {
 def il_train(flow_trainer: FlowTrainer):
     flow_trainer.train(epoches=flow_trainer.config.epoches)
 
-def eval(env_id: str, env_wrappers: list, flow_trainer: FlowTrainer, eval_num: int):
+def eval(env_id: str, flow_trainer: FlowTrainer, eval_num: int):
     flow_trainer.load()
-    env = gym.make(env_id, render_mode='human')
-    env = env_wrapper(env, env_wrappers)
+    env = create_robotics_env(env_id, vec=False, render=True)
 
     eval_num += 1
     while eval_num := eval_num - 1:
@@ -143,23 +147,20 @@ def rl_train(trainer: RLTrainer):
     trainer.train()
 
 if __name__ == '__main__':
+    args = parser.parse_args()
     # Set Config
     config_fp = './src/config/flow.yaml'
-    instance_name = 'rl1'
-    il_stage = False
-    train_mode = False
+    instance_name = args.inst_name
+    il_stage = args.il
+    train_mode = args.train
     yaml_data = load_yaml(config_fp)
     eval_num = 32
-    env_wrappers = [
-        (RoboticsWrapper, {}),
-    ]
 
     print_green(f"YAML data:")
     print(yaml_data)
 
     # Instantiate Env
-    env = gym.make(env_name := yaml_data['env_name'])
-    env = env_wrapper(env, env_wrappers)
+    env = create_robotics_env(yaml_data['env_name'], vec=False)
 
     # --------------------------------------
     flow_key, flow_train_key = TRAIN_MAPPING[instance_name]
@@ -186,13 +187,13 @@ if __name__ == '__main__':
         if train_mode:
             il_train(flow_trainer)
         else:
-            eval(env.spec.id, env_wrappers, flow_trainer, eval_num=eval_num)
+            eval(env.spec.id, flow_trainer, eval_num=eval_num)
     else:
         if train_mode:
             rl_train(flow_trainer)
         else:
             flow_trainer.flow.config.use_ode = True
-            eval(env.spec.id, env_wrappers, flow_trainer, eval_num=eval_num)
+            eval(env.spec.id, flow_trainer, eval_num=eval_num)
     
     env.close()
     

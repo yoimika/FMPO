@@ -67,9 +67,7 @@ class RLTrainConfig(BaseTrainConfig):
 
     def get_env(self):
         if self.vectorize_env:
-            env = gym.make_vec(self.env_name, num_envs=self.num_envs, vectorization_mode='sync', wrappers=[lambda e : item(e) for item in self.env_wrapper])
-            env = VectorTorchWrapper(env)
+            env = create_robotics_env(self.env_name, vec=self.vectorize_env, num_env=self.num_envs)
         else:
-            env = gym.make(self.env_name)
-            env = env_wrapper(env, self.env_wrapper)
+            env = create_robotics_env(self.env_name, vec=self.vectorize_env)
         return env
