@@ -5,8 +5,6 @@ from dataclasses import dataclass, field
 import gymnasium as gym
 from copy import deepcopy as dc
 
-from config.configs import RLTrainConfig
-
 def make_layers(layers_info: list[int]):
     layers = []
     for idx in range(len(layers_info)-1):
@@ -21,9 +19,10 @@ def make_layers(layers_info: list[int]):
 class TimeScheduler:
     """Time Scheduler for returning desired format time.
     """
-    def __init__(self, time_steps: int):
+    def __init__(self, time_steps: int, device: torch.device = torch.device('cpu')):
         self.time_steps = time_steps
-        self.time_points = torch.linspace(1, 0, time_steps + 1) # Flow model t=1 for noise, t=0 for data
+        self.time_points = torch.linspace(1, 0, time_steps + 1).to(device) # Flow model t=1 for noise, t=0 for data
+        self.device = device
     @property
     def curr_t(self):
         return self.time_points[:-1]
@@ -41,8 +40,8 @@ class TimeScheduler:
             (steps, B, 1): batched_curr_t
             (steps, B, 1): batched_next_t
         """
-        curr_t = self.curr_t.unsqueeze(-1).unsqueeze(-1).repeat(1, batch_size, 1)
-        next_t = self.next_t.unsqueeze(-1).unsqueeze(-1).repeat(1, batch_size, 1)
+        curr_t = self.curr_t.unsqueeze(-1).unsqueeze(-1).repeat(1, batch_size, 1).to(self.device)
+        next_t = self.next_t.unsqueeze(-1).unsqueeze(-1).repeat(1, batch_size, 1).to(self.device)
         return curr_t, next_t
     
 @dataclass
@@ -151,14 +150,14 @@ class FlowConfig:
     
 
 class Flow(nn.Module):
-    def __init__(self, config: FlowConfig):
+    def __init__(self, config: FlowConfig, device: torch.device = torch.device('cpu')):
         super(Flow, self).__init__()
         self.config = config
 
         self.main_net = make_layers(config.main_layers_info)
         self.time_net = make_layers(config.time_embed_layers_info)
 
-        self.time_scheduler: TimeScheduler = TimeScheduler(self.config.time_steps)
+        self.time_scheduler: TimeScheduler = TimeScheduler(self.config.time_steps, device)
         self.t_sampler = torch.distributions.Normal(0, 1)
         self.noise_sampler = torch.distributions.Normal(0, 1)
         self.brownian_sampler = torch.distributions.Normal(0, 1)
@@ -189,7 +188,7 @@ class Flow(nn.Module):
         t = curr_t + 0.5 * dt if self.config.use_mid_euler else curr_t
         with torch.no_grad():
             pred_vel = self.forward(obs, noise, t)
-        if self.config.use_ode:
+        if self.config.use_ode or (t > 0.2).all().item():
             # ODE
             dnoise = noise + dt * pred_vel
         else:
@@ -197,12 +196,11 @@ class Flow(nn.Module):
             sde_sigma = self.config.sde_sigma
             brownian_eps = self.brownian_sampler.sample(noise.shape).to(noise.device)
 
-            # time_term = pred_vel + sde_sigma**2 / (2*t) * (noise + (1 - t) * pred_vel)
-            # eps_term = sde_sigma * torch.sqrt(dt)
+            time_term = pred_vel + sde_sigma**2 / (2*t) * (noise + (1 - t) * pred_vel)
+            # import pdb; pdb.set_trace()
+            eps_term = sde_sigma * torch.sqrt(torch.abs(dt))
 
-            # dnoise = noise + time_term * dt + eps_term * brownian_eps
-            eps_term = sde_sigma
-            dnoise = noise + eps_term * brownian_eps
+            dnoise = noise + time_term * dt + eps_term * brownian_eps
         return dnoise, t, dt
     
     def compute_cfm_loss(self, obs, x0, noise, t, record_grad: bool=False):
@@ -239,7 +237,7 @@ class Flow(nn.Module):
         return transition.reward
 
     
-    def compute_fpo_loss(self, transition: Transition, train_config: RLTrainConfig):
+    def compute_fpo_loss(self, transition: Transition, train_config):
         """Compute fpo loss.
 
         Args:

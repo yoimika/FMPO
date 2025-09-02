@@ -64,10 +64,12 @@ class RLTrainConfig(BaseTrainConfig):
     average_loss_before_exp: bool = True
 
     save_interval: int = 10
+    save_idx: bool = False
+    load_idx: int = None
 
-    def get_env(self):
+    def get_env(self, device: torch.device = torch.device('cpu')):
         if self.vectorize_env:
-            env = create_robotics_env(self.env_name, vec=self.vectorize_env, num_env=self.num_envs)
+            env = create_robotics_env(self.env_name, vec=self.vectorize_env, num_env=self.num_envs, device=device)
         else:
-            env = create_robotics_env(self.env_name, vec=self.vectorize_env)
+            env = create_robotics_env(self.env_name, vec=self.vectorize_env, device=device)
         return env

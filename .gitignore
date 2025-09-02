@@ -12,3 +12,4 @@ wheels/
 .vscode/
 save/
 test/
+logs/

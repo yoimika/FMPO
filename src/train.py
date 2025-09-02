@@ -9,9 +9,11 @@ from config.configs import FlowTrainConfig, RLTrainConfig
 import argparse
 from algorithm import PPO
 
+
 parser = argparse.ArgumentParser()
-parser.add_argument('--il', store_true=True, help='imitation learning stage')
-parser.add_argument('--train', store_true=True, help='training stage')
+parser.add_argument('--il', action='store_true', help='imitation learning stage')
+parser.add_argument('--train', action='store_true', help='training stage')
+parser.add_argument('--eval', action='store_true', help='training stage')
 parser.add_argument('--inst_name', default='rl1', help='instance name')
 
 class FlowTrainer:
@@ -90,21 +92,26 @@ class RLTrainer:
             self.flow.load_state_dict(torch.load(fp))
         print_green("Base Model Loaded Successfully.")
     
-    def get_file_path(self):
+    def get_file_path(self, idx: int = None):
+        if idx is not None:
+            save_name, suffix = self.config.save_file_name.split('.')
+            save_fp = os.path.join(self.config.save_dir, f"{save_name}_{idx}.{suffix}")
         return os.path.join(self.config.save_dir, self.config.save_file_name)
 
-    def save(self):
+    def save(self, idx:int = None):
         os.makedirs(self.config.save_dir, exist_ok=True)
-        save_fp = self.get_file_path()
+        save_fp = self.get_file_path(idx)
         torch.save(self.flow.state_dict(), save_fp)
         print("Saved.")
     
-    def load(self):
-        self.flow.load_state_dict(torch.load(self.get_file_path()))
+    def load(self, idx: int = None):
+        loaded_fp = self.get_file_path(idx)
+        print(f"Load model fp: {loaded_fp}")
+        self.flow.load_state_dict(torch.load(loaded_fp))
     
     # PPO Train
     def train(self):
-        env = self.config.get_env()
+        env = self.config.get_env(device)
         if self.config.algorithm == "PPO":
             PPO(self.flow, env, self.config, self.optim, self)
         
@@ -115,33 +122,23 @@ class RLTrainer:
 # Training Instance
 #######################################
 
+
 TRAIN_MAPPING = {
     'il1': ['flow', 'il_flow_train'],
     'il2': ['flow2', 'il_flow_train2'],
     'il3': ['flow3', 'il_flow_train3'],
     'il4': ['flow4', 'il_flow_train4'],
 
-    'rl1': ['flow5', 'rl_flow_train']
+    'rl1': ['flow5', 'rl_flow_train'],
+    'rl_sde': ['flow_sde', 'rl_flow_train_sde'],
+    'rl_gpu': ['flow_ode', 'rl_flow_train_gpu'],
 }
 
 def il_train(flow_trainer: FlowTrainer):
     flow_trainer.train(epoches=flow_trainer.config.epoches)
 
 def eval(env_id: str, flow_trainer: FlowTrainer, eval_num: int):
-    flow_trainer.load()
-    env = create_robotics_env(env_id, vec=False, render=True)
-
-    eval_num += 1
-    while eval_num := eval_num - 1:
-        obs, _ = env.reset()
-        done = False
-        while not done:
-            tensor_obs = from_numpy(obs).unsqueeze(0)  # (1, obs_dim)
-            action, _ = flow_trainer.flow.sample_action(tensor_obs)
-            action = action.cpu().squeeze().numpy()
-            obs, _, terminated, truncated, _  = env.step(action)
-            done = terminated or truncated
-    env.close()
+    eval_robotics_env(env_id, flow_trainer.flow, sample_nums=eval_num, device=device)
 
 def rl_train(trainer: RLTrainer):
     trainer.train()
@@ -154,13 +151,18 @@ if __name__ == '__main__':
     il_stage = args.il
     train_mode = args.train
     yaml_data = load_yaml(config_fp)
-    eval_num = 32
+    eval_num = 64
 
     print_green(f"YAML data:")
     print(yaml_data)
 
     # Instantiate Env
-    env = create_robotics_env(yaml_data['env_name'], vec=False)
+    if train_mode:
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    else:
+        device = torch.device('cpu')
+    print(device)
+    env = create_robotics_env(yaml_data['env_name'], vec=False, device=device)
 
     # --------------------------------------
     flow_key, flow_train_key = TRAIN_MAPPING[instance_name]
@@ -176,11 +178,15 @@ if __name__ == '__main__':
 
 
     # Instantiate model
-    flow = Flow(flow_config)
+    flow = Flow(flow_config, device).to(device)
     if il_stage:
         flow_trainer = FlowTrainer(flow, flow_train_config)
+        if not train_mode:
+            flow_trainer.load(None if flow_train_config.load_idx is None else flow_train_config.load_idx)
     else:
         flow_trainer = RLTrainer(flow, flow_train_config)
+        if not train_mode:
+            flow_trainer.load(None if flow_train_config.load_idx is None else flow_train_config.load_idx)
 
     # Train or Eval
     if il_stage:

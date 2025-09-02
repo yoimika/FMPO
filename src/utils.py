@@ -8,9 +8,9 @@ from functools import reduce
 def print_green(str: str):
     print(f"\033[92m{str}\033[0m")
 
-def from_numpy(obj):
+def from_numpy(obj, device=torch.device('cpu')):
     if isinstance(obj, np.ndarray):
-        return torch.from_numpy(obj).float()
+        return torch.from_numpy(obj).float().to(device)
     return obj
 
 def from_tensor(obj):
@@ -18,8 +18,8 @@ def from_tensor(obj):
         return obj.cpu().numpy()
     return obj
 
-def from_dict(obj: dict):
-    return {k: from_numpy(v) for k, v in obj.items()}
+def from_dict(obj: dict, device=torch.device('cpu')):
+    return {k: from_numpy(v).to(device) for k, v in obj.items()}
 
 def gym_robotics_observation_concat(obs):
     _obs = obs['observation']

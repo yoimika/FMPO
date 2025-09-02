@@ -64,9 +64,38 @@ flow5:
 
 rl_flow_train: &rl_train_cfg
   <<: *base_train_cfg
+  episode_length: 10000
+  num_envs: 10
   batch_size: 2500
   epoches: 1000
-  num_envs: 10
   save_file_name: "flow-rl.pth"
   base_model_file_name: "flow-imitation3.pth"
   algorithm: "PPO"
+
+flow_ode:
+  <<: *flow3
+  use_ode: True
+
+flow_sde:
+  <<: *flow3
+  use_ode: False
+
+rl_flow_train_gpu: &rl_train_cfg_gpu
+  <<: *rl_train_cfg
+  episode_length: 51200
+  num_envs: 256
+  batch_size: 12800
+  epoches: 1000
+  save_file_name: "flow-rl-gpu.pth"
+  save_interval: 10
+  save_dir: "./save/flow_rl_gpu"
+
+  save_idx: True
+  load_idx: 0
+
+rl_flow_train_sde: 
+  <<: *rl_train_cfg_gpu
+  save_file_name: "flow-rl-sde.pth"
+  save_interval: 10
+  save_dir: "./save/flow_rl_sde"
+  load_idx: 0
