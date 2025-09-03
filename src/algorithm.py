@@ -5,13 +5,10 @@ from env import *
 from tqdm import tqdm
 
 def compute_return(trajectory: list[Transition], gamma=0.95):
-    use_discounted_factor: bool = False
-    if use_discounted_factor:
-        rew = 0
-        for i in reversed(range(len(trajectory))):
-            rew = trajectory[i].reward + gamma * rew
-            trajectory[i].reward = rew
-    return trajectory
+    rew = 0
+    for i in reversed(range(len(trajectory))):
+        rew = trajectory[i].reward + gamma * rew
+        trajectory[i].reward = rew
 
 def rollout(flow: Flow, env: gym.Env, iter: int, pbar: tqdm = None):
     trajectories = []
@@ -26,10 +23,13 @@ def rollout(flow: Flow, env: gym.Env, iter: int, pbar: tqdm = None):
             # Trick: Reward + 1 for failure 0, success 1
             trajectory.append(Transition(obs, next_obs, action, reward+1, done, action_info))
 
+        import pdb;   pdb.set_trace()
         if pbar:
             pbar.set_description(f"Rollout {i+1}/{iter}")
-        # import pdb;   pdb.set_trace()
-        trajectories.extend(compute_return(trajectory))
+        compute_reward_to_go = True
+        if compute_reward_to_go:
+            compute_return(trajectory)
+        trajectories.extend(trajectory)
     return RolloutState(trajectories)
 
 def PPO(flow: Flow, env: gym.Env, config: RLTrainConfig, optim: torch.optim.Optimizer, trainer):

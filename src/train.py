@@ -90,7 +90,7 @@ class RLTrainer:
         if self.config.base_model_file_name:
             fp = os.path.join(self.config.save_dir, self.config.base_model_file_name)
             self.flow.load_state_dict(torch.load(fp))
-        print_green("Base Model Loaded Successfully.")
+        print_green(f"Base Model Loaded Successfully. {fp}")
     
     def get_file_path(self, idx: int = None):
         if idx is not None:
