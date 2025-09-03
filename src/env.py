@@ -71,21 +71,38 @@ def create_robotics_env(env_name: str, vec: bool, render: bool = False, num_env:
         env = TorchWrapper(env, device=device)
     return env
 
-def eval_robotics_env(env_name: str, flow: Flow, sample_nums: int, device: torch.device = torch.device('cpu')):
-    env = create_robotics_env(env_name, vec=True, render=False, num_env=32, device=device)
+def eval_robotics_env(env_name: str, flow: Flow, sample_nums: int, device: torch.device = torch.device('cpu'), render: bool = False):
+    vec = True
+    if render: 
+        vec = False
+    env = create_robotics_env(env_name, vec=vec, render=render, num_env=32, device=device)
     success_transitions_count = 0
     all_transitions_count = 0
+    rews = []
     for idx in tqdm( range(sample_nums) ):
         obs, _ = env.reset()
-        done = np.array(0.0)
-        while not done.sum().item():
+        done = np.array(0.0) if vec else False
+        traj = []
+        while not (done.sum().item() if vec else done):
+            if len(obs.shape) == 1:
+                obs = obs.unsqueeze(0)
+            # import pdb; pdb.set_trace()
             action, _ = flow.sample_action(obs)  # (1, action_dim)
-            obs, _, terminated, truncated, info = env.step(action.cpu().squeeze().numpy())
-            done = terminated + truncated
+            obs, rew, terminated, truncated, info = env.step(action.cpu().squeeze().numpy())
+            done = (terminated + truncated) if vec else (terminated or truncated)
             success_transitions_count += info['is_success'].sum()
             all_transitions_count += len(obs)
+            traj.append(rew)
+        
+        traj = np.stack(traj).squeeze() + 1
+        if True:
+            for i in reversed(range(len(traj))):
+                traj[i] = traj[i] + (traj[i+1] if i+1 < len(traj) else 0) * 0.95
+        rews.extend( traj )
+    stacked_rews = (np.stack(rews))
     success_ratio = success_transitions_count / all_transitions_count
     print(f"Eval robotics env success ratio: {success_ratio:.4f}")
+    print(f"Average Rewards: {stacked_rews.mean():.4f} +/- {stacked_rews.std():.4f}")
 
 
 if __name__ == '__main__':

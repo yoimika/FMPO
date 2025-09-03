@@ -19,7 +19,7 @@ def from_tensor(obj):
     return obj
 
 def from_dict(obj: dict, device=torch.device('cpu')):
-    return {k: from_numpy(v).to(device) for k, v in obj.items()}
+    return {k: from_numpy(v, device) for k, v in obj.items()}
 
 def gym_robotics_observation_concat(obs):
     _obs = obs['observation']
