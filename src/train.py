@@ -14,6 +14,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--il', action='store_true', help='imitation learning stage')
 parser.add_argument('--train', action='store_true', help='training stage')
 parser.add_argument('--eval', action='store_true', help='training stage')
+parser.add_argument('--vis', action='store_true', help='training stage')
 parser.add_argument('--inst_name', default='rl1', help='instance name')
 
 class FlowTrainer:
@@ -107,7 +108,8 @@ class RLTrainer:
     def load(self, idx: int = None):
         loaded_fp = self.get_file_path(idx)
         print(f"Load model fp: {loaded_fp}")
-        self.flow.load_state_dict(torch.load(loaded_fp))
+        state_dict = torch.load(loaded_fp, map_location=device)
+        self.flow.load_state_dict(state_dict)
     
     # PPO Train
     def train(self):
@@ -137,8 +139,8 @@ TRAIN_MAPPING = {
 def il_train(flow_trainer: FlowTrainer):
     flow_trainer.train(epoches=flow_trainer.config.epoches)
 
-def eval(env_id: str, flow_trainer: FlowTrainer, eval_num: int):
-    eval_robotics_env(env_id, flow_trainer.flow, sample_nums=eval_num, device=device)
+def eval(env_id: str, flow_trainer: FlowTrainer, eval_num: int, render: bool = False):
+    eval_robotics_env(env_id, flow_trainer.flow, sample_nums=eval_num, device=device, render=render)
 
 def rl_train(trainer: RLTrainer):
     trainer.train()
@@ -182,7 +184,7 @@ if __name__ == '__main__':
     if il_stage:
         flow_trainer = FlowTrainer(flow, flow_train_config)
         if not train_mode:
-            flow_trainer.load(None if flow_train_config.load_idx is None else flow_train_config.load_idx)
+            flow_trainer.load()
     else:
         flow_trainer = RLTrainer(flow, flow_train_config)
         if not train_mode:
@@ -193,13 +195,13 @@ if __name__ == '__main__':
         if train_mode:
             il_train(flow_trainer)
         else:
-            eval(env.spec.id, flow_trainer, eval_num=eval_num)
+            eval(env.spec.id, flow_trainer, eval_num=eval_num, render=args.vis)
     else:
         if train_mode:
             rl_train(flow_trainer)
         else:
             flow_trainer.flow.config.use_ode = True
-            eval(env.spec.id, flow_trainer, eval_num=eval_num)
+            eval(env.spec.id, flow_trainer, eval_num=eval_num, render=args.vis)
     
     env.close()
     
