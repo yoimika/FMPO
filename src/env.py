@@ -82,7 +82,7 @@ def eval_robotics_env(env_name: str, flow: Flow, sample_nums: int, device: torch
     for idx in tqdm( range(sample_nums) ):
         obs, _ = env.reset()
         done = np.array(0.0) if vec else False
-        traj = []
+        raw_traj = []
         while not (done.sum().item() if vec else done):
             if len(obs.shape) == 1:
                 obs = obs.unsqueeze(0)
@@ -92,12 +92,13 @@ def eval_robotics_env(env_name: str, flow: Flow, sample_nums: int, device: torch
             done = (terminated + truncated) if vec else (terminated or truncated)
             success_transitions_count += info['is_success'].sum()
             all_transitions_count += len(obs)
-            traj.append(rew)
+            raw_traj.append(rew)
         
-        traj = np.stack(traj).squeeze() + 1
+        traj = np.stack(raw_traj).squeeze() + 1
         if True:
             for i in reversed(range(len(traj))):
                 traj[i] = traj[i] + (traj[i+1] if i+1 < len(traj) else 0) * 0.95
+        import pdb; pdb.set_trace()
         rews.extend( traj )
     stacked_rews = (np.stack(rews))
     success_ratio = success_transitions_count / all_transitions_count
