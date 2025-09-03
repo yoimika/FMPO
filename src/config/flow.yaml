@@ -99,3 +99,10 @@ rl_flow_train_sde:
   save_interval: 10
   save_dir: "./save/flow_rl_sde"
   load_idx: 0
+
+rl_flow_train_tmp: 
+  <<: *rl_train_cfg_gpu
+  save_file_name: "flow-rl-tmp.pth"
+  save_interval: 10
+  save_dir: "./save/flow_rl_tmp"
+  load_idx: 0

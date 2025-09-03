@@ -1,5 +1,6 @@
 import gymnasium as gym
 import gymnasium_robotics
+import cv2
 
 from flow import Flow
 gym.register_envs(gymnasium_robotics)
@@ -56,7 +57,7 @@ class VectorTorchWrapper(gym.vector.VectorWrapper):
         return from_numpy(obs, self.device), from_numpy(reward, self.device), from_numpy(terminated, self.device), from_numpy(truncated, self.device), from_dict(info, self.device)
 
 
-def create_robotics_env(env_name: str, vec: bool, render: bool = False, num_env: int = 1, device: torch.device = torch.device('cpu')):
+def create_robotics_env(env_name: str, vec: bool, render: bool = False, mp4: bool = False, num_env: int = 1, device: torch.device = torch.device('cpu')):
     if vec:
         env = gym.make_vec(env_name, num_envs=num_env, vectorization_mode='sync', wrappers=[
             lambda e: RoboticsWrapper(e),
@@ -64,7 +65,10 @@ def create_robotics_env(env_name: str, vec: bool, render: bool = False, num_env:
         env = VectorTorchWrapper(env, device=device)
     else:
         if render:
-            env = gym.make(env_name, render_mode='human')
+            if mp4:
+                env = gym.make(env_name, render_mode='rgb_array')
+            else:
+                env = gym.make(env_name, render_mode='human')
         else:
             env = gym.make(env_name)
         env = RoboticsWrapper(env)
@@ -72,15 +76,23 @@ def create_robotics_env(env_name: str, vec: bool, render: bool = False, num_env:
     return env
 
 def eval_robotics_env(env_name: str, flow: Flow, sample_nums: int, device: torch.device = torch.device('cpu'), render: bool = False):
+    mp4 = False
+    if mp4:
+        assert render == True
     vec = True
     if render: 
         vec = False
-    env = create_robotics_env(env_name, vec=vec, render=render, num_env=32, device=device)
+    env = create_robotics_env(env_name, vec=vec, render=render, num_env=32, device=device, mp4=mp4)
     success_transitions_count = 0
     all_transitions_count = 0
     rews = []
     for idx in tqdm( range(sample_nums) ):
         obs, _ = env.reset()
+        if mp4:
+            frame = env.render()
+            H, W, _ = frame.shape
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            out = cv2.VideoWriter('Demo_rgb.mp4', fourcc, 30.0, (W, H))
         done = np.array(0.0) if vec else False
         raw_traj = []
         while not (done.sum().item() if vec else done):
@@ -92,13 +104,18 @@ def eval_robotics_env(env_name: str, flow: Flow, sample_nums: int, device: torch
             done = (terminated + truncated) if vec else (terminated or truncated)
             success_transitions_count += info['is_success'].sum()
             all_transitions_count += len(obs)
-            raw_traj.append(rew)
+            raw_traj.append(rew.cpu().numpy())
+
+            if mp4:
+                frame = env.render()
+                frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                out.write(frame_bgr)
         
         traj = np.stack(raw_traj).squeeze() + 1
-        if True:
+        if False:
             for i in reversed(range(len(traj))):
                 traj[i] = traj[i] + (traj[i+1] if i+1 < len(traj) else 0) * 0.95
-        import pdb; pdb.set_trace()
+        # import pdb; pdb.set_trace()
         rews.extend( traj )
     stacked_rews = (np.stack(rews))
     success_ratio = success_transitions_count / all_transitions_count

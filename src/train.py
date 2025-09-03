@@ -97,6 +97,7 @@ class RLTrainer:
         if idx is not None:
             save_name, suffix = self.config.save_file_name.split('.')
             save_fp = os.path.join(self.config.save_dir, f"{save_name}_{idx}.{suffix}")
+            return save_fp
         return os.path.join(self.config.save_dir, self.config.save_file_name)
 
     def save(self, idx:int = None):
@@ -134,6 +135,7 @@ TRAIN_MAPPING = {
     'rl1': ['flow5', 'rl_flow_train'],
     'rl_sde': ['flow_sde', 'rl_flow_train_sde'],
     'rl_gpu': ['flow_ode', 'rl_flow_train_gpu'],
+    'rl_tmp': ['flow_ode', 'rl_flow_train_tmp'],
 }
 
 def il_train(flow_trainer: FlowTrainer):
@@ -143,6 +145,7 @@ def eval(env_id: str, flow_trainer: FlowTrainer, eval_num: int, render: bool = F
     eval_robotics_env(env_id, flow_trainer.flow, sample_nums=eval_num, device=device, render=render)
 
 def rl_train(trainer: RLTrainer):
+    eval_robotics_env(trainer.config.env_name, trainer.flow, sample_nums=128, device=device, render=False)
     trainer.train()
 
 if __name__ == '__main__':

@@ -60,7 +60,7 @@ class RLTrainConfig(BaseTrainConfig):
     vectorize_env: bool = True
     num_envs: int = 32
 
-    clip_epsilon = 0.2
+    clip_epsilon = 0.05
     average_loss_before_exp: bool = True
 
     save_interval: int = 10

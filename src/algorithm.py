@@ -22,11 +22,12 @@ def rollout(flow: Flow, env: gym.Env, iter: int, pbar: tqdm = None):
             done = terminated + truncated
             # Trick: Reward + 1 for failure 0, success 1
             trajectory.append(Transition(obs, next_obs, action, reward+1, done, action_info))
+            obs = next_obs
 
-        import pdb;   pdb.set_trace()
+        # import pdb;   pdb.set_trace()
         if pbar:
             pbar.set_description(f"Rollout {i+1}/{iter}")
-        compute_reward_to_go = True
+        compute_reward_to_go = False
         if compute_reward_to_go:
             compute_return(trajectory)
         trajectories.extend(trajectory)

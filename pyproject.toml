@@ -9,6 +9,7 @@ dependencies = [
     "gymnasium[atari,box2d,classic-control,mujoco]>=1.2.0",
     "matplotlib>=3.10.5",
     "numpy>=2.3.2",
+    "opencv-python>=4.11.0.86",
     "pyqt5>=5.15.11",
     "pyyaml>=6.0.2",
     "scikit-learn>=1.7.1",
