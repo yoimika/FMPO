@@ -76,7 +76,7 @@ def create_robotics_env(env_name: str, vec: bool, render: bool = False, mp4: boo
     return env
 
 def eval_robotics_env(env_name: str, flow: Flow, sample_nums: int, device: torch.device = torch.device('cpu'), render: bool = False):
-    mp4 = False
+    mp4 = True
     if mp4:
         assert render == True
     vec = True
@@ -86,13 +86,16 @@ def eval_robotics_env(env_name: str, flow: Flow, sample_nums: int, device: torch
     success_transitions_count = 0
     all_transitions_count = 0
     rews = []
-    for idx in tqdm( range(sample_nums) ):
+
+    if mp4:
         obs, _ = env.reset()
         if mp4:
             frame = env.render()
             H, W, _ = frame.shape
             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-            out = cv2.VideoWriter('Demo_rgb.mp4', fourcc, 30.0, (W, H))
+            out = cv2.VideoWriter('./save/Demo_rgb.mp4', fourcc, 30.0, (W, H))
+    for idx in tqdm( range(sample_nums) ):
+        obs, _ = env.reset()
         done = np.array(0.0) if vec else False
         raw_traj = []
         while not (done.sum().item() if vec else done):
@@ -104,7 +107,7 @@ def eval_robotics_env(env_name: str, flow: Flow, sample_nums: int, device: torch
             done = (terminated + truncated) if vec else (terminated or truncated)
             success_transitions_count += info['is_success'].sum()
             all_transitions_count += len(obs)
-            raw_traj.append(rew.cpu().numpy())
+            raw_traj.append(rew.cpu().numpy() if isinstance(rew, torch.Tensor) else rew)
 
             if mp4:
                 frame = env.render()
@@ -117,6 +120,8 @@ def eval_robotics_env(env_name: str, flow: Flow, sample_nums: int, device: torch
                 traj[i] = traj[i] + (traj[i+1] if i+1 < len(traj) else 0) * 0.95
         # import pdb; pdb.set_trace()
         rews.extend( traj )
+    if mp4:
+        out.release()
     stacked_rews = (np.stack(rews))
     success_ratio = success_transitions_count / all_transitions_count
     print(f"Eval robotics env success ratio: {success_ratio:.4f}")
