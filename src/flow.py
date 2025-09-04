@@ -3,7 +3,21 @@ from torch import Tensor, tensor
 import torch.nn as nn
 from dataclasses import dataclass, field
 import gymnasium as gym
-from copy import deepcopy as dc
+
+@dataclass
+class ActionInfo:
+    x1: Tensor # (B, sample_dim, act_dim)
+    t: Tensor  # (B, sample_dim, 1)
+    cfm_loss: Tensor # (B, sample_dim, 1)
+
+@dataclass
+class Transition:
+    obs: torch.Tensor
+    next_obs: torch.Tensor
+    action: torch.Tensor
+    reward: torch.Tensor
+    done: torch.Tensor
+    action_info: ActionInfo
 
 def make_layers(layers_info: list[int]):
     layers = []
@@ -43,71 +57,7 @@ class TimeScheduler:
         curr_t = self.curr_t.unsqueeze(-1).unsqueeze(-1).repeat(1, batch_size, 1).to(self.device)
         next_t = self.next_t.unsqueeze(-1).unsqueeze(-1).repeat(1, batch_size, 1).to(self.device)
         return curr_t, next_t
-    
-@dataclass
-class ActionInfo:
-    x1: Tensor # (B, sample_dim, act_dim)
-    t: Tensor  # (B, sample_dim, 1)
-    cfm_loss: Tensor # (B, sample_dim, 1)
 
-@dataclass
-class Transition:
-    obs: torch.Tensor
-    next_obs: torch.Tensor
-    action: torch.Tensor
-    reward: torch.Tensor
-    done: torch.Tensor
-    action_info: ActionInfo
-
-class RolloutState(Transition):
-    def __init__(self, transitions: list[Transition]):
-        def stack_tensor(attr):
-            return torch.stack(attr, dim=0)
-        self.obs = stack_tensor([t.obs for t in transitions])
-        self.next_obs = stack_tensor([t.next_obs for t in transitions])
-        self.action = stack_tensor([t.action for t in transitions])
-        self.reward = stack_tensor([t.reward for t in transitions])
-        self.done = stack_tensor([t.done for t in transitions])
-        self.action_info = ActionInfo(
-            cfm_loss=stack_tensor([t.action_info.cfm_loss for t in transitions]),
-            t=stack_tensor([t.action_info.t for t in transitions]),
-            x1=stack_tensor([t.action_info.x1 for t in transitions])
-        )
-    
-    def prepare_batches(self, batch_size):
-        T, B, _ = self.obs.shape
-        # print(T, B)
-        assert T * B % batch_size == 0
-        length = T * B // batch_size
-
-        def _prepare_single_batches(item):
-            suffix = item.shape[2:]
-            return item.view(length, batch_size, *suffix)
-
-        obs = _prepare_single_batches(self.obs)
-        next_obs = _prepare_single_batches(self.next_obs)
-        action = _prepare_single_batches(self.action)
-        reward = _prepare_single_batches(self.reward)
-        done = _prepare_single_batches(self.done)
-
-        cfm_loss = _prepare_single_batches(self.action_info.cfm_loss)
-        t = _prepare_single_batches(self.action_info.t)
-        x1 = _prepare_single_batches(self.action_info.x1)
-
-        return [
-            Transition(
-                obs=obs[i], 
-                next_obs=next_obs[i], 
-                action=action[i], 
-                reward=reward[i], 
-                done=done[i], 
-                action_info=ActionInfo(
-                    cfm_loss=cfm_loss[i], 
-                    t=t[i], 
-                    x1=x1[i]
-                )
-            ) for i in range(length)
-        ]
 
 @dataclass
 class FlowConfig:
@@ -188,12 +138,13 @@ class Flow(nn.Module):
         t = curr_t + 0.5 * dt if self.config.use_mid_euler else curr_t
         with torch.no_grad():
             pred_vel = self.forward(obs, noise, t)
-        if self.config.use_ode or (t > 0.2).all().item():
+        # if self.config.use_ode or (t > 0.2).all().item():
+        if self.config.use_ode:
             # ODE
             dnoise = noise + dt * pred_vel
         else:
             # SDE
-            sde_sigma = self.config.sde_sigma
+            sde_sigma = self.config.sde_sigma * torch.sqrt(t / (1 - t))
             brownian_eps = self.brownian_sampler.sample(noise.shape).to(noise.device)
 
             time_term = pred_vel + sde_sigma**2 / (2*t) * (noise + (1 - t) * pred_vel)
@@ -201,6 +152,7 @@ class Flow(nn.Module):
             eps_term = sde_sigma * torch.sqrt(torch.abs(dt))
 
             dnoise = noise + time_term * dt + eps_term * brownian_eps
+            # import pdb; pdb.set_trace()
         return dnoise, t, dt
     
     def compute_cfm_loss(self, obs, x0, noise, t, record_grad: bool=False):

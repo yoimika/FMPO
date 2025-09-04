@@ -1,3 +1,4 @@
+from copy import deepcopy as dc
 import gymnasium as gym
 import gymnasium_robotics
 import cv2
@@ -58,6 +59,11 @@ class VectorTorchWrapper(gym.vector.VectorWrapper):
 
 
 def create_robotics_env(env_name: str, vec: bool, render: bool = False, mp4: bool = False, num_env: int = 1, device: torch.device = torch.device('cpu')):
+    """
+    vec -> vec
+    render and mp4 -> record mp4
+    render and not mp4 -> human render
+    """
     if vec:
         env = gym.make_vec(env_name, num_envs=num_env, vectorization_mode='sync', wrappers=[
             lambda e: RoboticsWrapper(e),
@@ -76,7 +82,12 @@ def create_robotics_env(env_name: str, vec: bool, render: bool = False, mp4: boo
     return env
 
 def eval_robotics_env(env_name: str, flow: Flow, sample_nums: int, device: torch.device = torch.device('cpu'), render: bool = False):
-    mp4 = True
+    mp4 = False
+    """
+    mp4 and render -> record mp4
+    not mp4 and render -> human render
+    else -> no render
+    """
     if mp4:
         assert render == True
     vec = True
@@ -115,9 +126,25 @@ def eval_robotics_env(env_name: str, flow: Flow, sample_nums: int, device: torch
                 out.write(frame_bgr)
         
         traj = np.stack(raw_traj).squeeze() + 1
-        if False:
+        if True:
+            # # Reward to go
+            # for i in reversed(range(len(traj))):
+            #     traj[i] = traj[i] + (traj[i+1] if i+1 < len(traj) else 0) * 0.95
+
+            # Segmented Reward
+            rew = 0
             for i in reversed(range(len(traj))):
-                traj[i] = traj[i] + (traj[i+1] if i+1 < len(traj) else 0) * 0.95
+                rew = traj[i] + rew * 0.95 * (traj[i] == 0)
+                traj[i] = rew
+
+            # stat_traj = traj[-5:] - 1
+            # sum_stat_rew = sum(stat_traj)
+            # stat_rew = dc(sum_stat_rew)
+            # stat_rew[sum_stat_rew == 0] = 1
+            # stat_rew[sum_stat_rew != 0] = 0
+            # for i in reversed(range(len(traj))):
+            #     traj[i] = stat_rew
+            # import pdb; pdb.set_trace()
         # import pdb; pdb.set_trace()
         rews.extend( traj )
     if mp4:

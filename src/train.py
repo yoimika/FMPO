@@ -134,7 +134,7 @@ TRAIN_MAPPING = {
 
     'rl1': ['flow5', 'rl_flow_train'],
     'rl_sde': ['flow_sde', 'rl_flow_train_sde'],
-    'rl_gpu': ['flow_ode', 'rl_flow_train_gpu'],
+    'rl_gpu': ['flow5', 'rl_flow_train_gpu'],
     'rl_tmp': ['flow_ode', 'rl_flow_train_tmp'],
 }
 
@@ -145,7 +145,7 @@ def eval(env_id: str, flow_trainer: FlowTrainer, eval_num: int, render: bool = F
     eval_robotics_env(env_id, flow_trainer.flow, sample_nums=eval_num, device=device, render=render)
 
 def rl_train(trainer: RLTrainer):
-    eval_robotics_env(trainer.config.env_name, trainer.flow, sample_nums=128, device=device, render=False)
+    # eval_robotics_env(trainer.config.env_name, trainer.flow, sample_nums=32, device=device, render=False)
     trainer.train()
 
 if __name__ == '__main__':

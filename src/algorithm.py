@@ -1,14 +1,40 @@
-from flow import Flow, Transition, RolloutState
+import pdb
+from flow import Flow, Transition
 from dataclasses import dataclass
 from config.configs import RLTrainConfig
 from env import *
+from copy import deepcopy as dc
 from tqdm import tqdm
+from rollout import RolloutState
 
 def compute_return(trajectory: list[Transition], gamma=0.95):
+    # # Nothing to do 
+    # return 
+
+    # # Reward to go
+    # rew = 0
+    # for i in reversed(range(len(trajectory))):
+    #     rew = trajectory[i].reward + gamma * rew
+    #     trajectory[i].reward = rew
+
+    # 分段 Reward
     rew = 0
     for i in reversed(range(len(trajectory))):
-        rew = trajectory[i].reward + gamma * rew
+        rew = trajectory[i].reward + gamma * rew * (trajectory[i].reward == 0)
         trajectory[i].reward = rew
+    
+    # # 同一 Reward
+    # rew = 0
+    # statistic_traj = trajectory[:-5]
+    # statistic_rewd = sum([t.reward - 1 for t in statistic_traj])
+    # stat_rew = dc(statistic_rewd)
+    # stat_rew[statistic_rewd == 0] = 1
+    # stat_rew[statistic_rewd != 0] = 0
+    # for i in reversed(range(len(trajectory))):
+    #     trajectory[i].reward = dc(stat_rew)
+
+
+        
 
 def rollout(flow: Flow, env: gym.Env, iter: int, pbar: tqdm = None):
     trajectories = []
@@ -24,12 +50,12 @@ def rollout(flow: Flow, env: gym.Env, iter: int, pbar: tqdm = None):
             trajectory.append(Transition(obs, next_obs, action, reward+1, done, action_info))
             obs = next_obs
 
-        # import pdb;   pdb.set_trace()
         if pbar:
             pbar.set_description(f"Rollout {i+1}/{iter}")
-        compute_reward_to_go = False
+        compute_reward_to_go = True
         if compute_reward_to_go:
             compute_return(trajectory)
+        # import pdb;   pdb.set_trace()
         trajectories.extend(trajectory)
     return RolloutState(trajectories)
 
