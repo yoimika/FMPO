@@ -13,8 +13,7 @@ from algorithm import PPO
 parser = argparse.ArgumentParser()
 parser.add_argument('--il', action='store_true', help='imitation learning stage')
 parser.add_argument('--train', action='store_true', help='training stage')
-parser.add_argument('--eval', action='store_true', help='training stage')
-parser.add_argument('--vis', action='store_true', help='training stage')
+parser.add_argument('--vis', action='store_true', help='Use human render mode, else store mp4.')
 parser.add_argument('--inst_name', default='rl1', help='instance name')
 
 class FlowTrainer:
@@ -37,8 +36,8 @@ class FlowTrainer:
         """
         B, _ = obs.shape
 
-        t = self.flow.t_sampler.sample((B, 1))
-        noise = self.flow.noise_sampler.sample(action.shape)
+        t = self.flow.t_sampler.sample((B, 1)).to(self.flow.device)
+        noise = self.flow.noise_sampler.sample(action.shape).to(self.flow.device)
         
         cfm_loss = self.flow.compute_cfm_loss(obs, action, noise, t, record_grad=True)
         return cfm_loss
@@ -52,8 +51,8 @@ class FlowTrainer:
         pbar = tqdm(range(epoches))
         for epoch in pbar:
             for batch in self.dataloader:
-                obs = batch['observation']
-                action = batch['action']
+                obs = batch['observation'].to(self.flow.device)
+                action = batch['action'].to(self.flow.device)
                 loss = self.single_train_step(obs, action)
 
                 self.optim.zero_grad()
@@ -66,7 +65,7 @@ class FlowTrainer:
         self.save()
 
     def get_file_path(self):
-        return os.path.join(self.config.save_dir, self.config.save_file_name)
+        return os.path.join(self.config.save_dir, self.config.env_name + '-' + 'il.pth')
 
     def save(self):
         os.makedirs(self.config.save_dir, exist_ok=True)
@@ -75,7 +74,7 @@ class FlowTrainer:
         print("Saved.")
 
     def load(self):
-        self.flow.load_state_dict(torch.load(self.get_file_path()))
+        self.flow.load_state_dict(torch.load(self.get_file_path(), map_location=device))
 
 
 
@@ -94,17 +93,17 @@ class RLTrainer:
         print_green(f"Base Model Loaded Successfully. {fp}")
     
     def get_file_path(self, idx: int = None):
+        save_name = self.config.env_name
         if idx is not None:
-            save_name, suffix = self.config.save_file_name.split('.')
-            save_fp = os.path.join(self.config.save_dir, f"{save_name}_{idx}.{suffix}")
+            save_fp = os.path.join(self.config.save_dir, f"{save_name}-{idx}.pth")
             return save_fp
-        return os.path.join(self.config.save_dir, self.config.save_file_name)
+        return os.path.join(self.config.save_dir, save_name + '-' + 'rl.pth')
 
     def save(self, idx:int = None):
         os.makedirs(self.config.save_dir, exist_ok=True)
         save_fp = self.get_file_path(idx)
         torch.save(self.flow.state_dict(), save_fp)
-        print("Saved.")
+        print(f"Saved. {save_fp}")
     
     def load(self, idx: int = None):
         loaded_fp = self.get_file_path(idx)
@@ -141,8 +140,8 @@ TRAIN_MAPPING = {
 def il_train(flow_trainer: FlowTrainer):
     flow_trainer.train(epoches=flow_trainer.config.epoches)
 
-def eval(env_id: str, flow_trainer: FlowTrainer, eval_num: int, render: bool = False):
-    eval_robotics_env(env_id, flow_trainer.flow, sample_nums=eval_num, device=device, render=render)
+def eval(env_config: EnvConfig, flow_trainer: FlowTrainer, eval_num: int, render: bool = False):
+    eval_env(env_config, flow_trainer.flow, sample_nums=eval_num, device=device, render=render)
 
 def rl_train(trainer: RLTrainer):
     # eval_robotics_env(trainer.config.env_name, trainer.flow, sample_nums=32, device=device, render=False)
@@ -151,15 +150,18 @@ def rl_train(trainer: RLTrainer):
 if __name__ == '__main__':
     args = parser.parse_args()
     # Set Config
-    config_fp = './src/config/flow.yaml'
+    train_config_fp = './src/config/train.yaml'
+    model_config_fp = './src/config/model.yaml'
+    env_config_fp = './src/config/env.yaml'
+
     instance_name = args.inst_name
     il_stage = args.il
     train_mode = args.train
-    yaml_data = load_yaml(config_fp)
-    eval_num = 64
 
-    print_green(f"YAML data:")
-    print(yaml_data)
+    train_yaml_data = load_yaml(train_config_fp)
+    model_yaml_data = load_yaml(model_config_fp)
+    env_yaml_data = load_yaml(env_config_fp)
+    eval_num = 64
 
     # Instantiate Env
     if train_mode:
@@ -167,15 +169,20 @@ if __name__ == '__main__':
     else:
         device = torch.device('cpu')
     print(device)
-    env = create_robotics_env(yaml_data['env_name'], vec=False, device=device)
 
     # --------------------------------------
     flow_key, flow_train_key = TRAIN_MAPPING[instance_name]
-    flow_config = FlowConfig.build_from_env(env)
-    overwrite_object(flow_config, yaml_data[flow_key])
     flow_train_config = FlowTrainConfig() if il_stage else RLTrainConfig()
-    overwrite_object(flow_train_config, yaml_data[flow_train_key])
+    overwrite_object(flow_train_config, train_yaml_data[flow_train_key])
+    env_config = EnvConfig()
+    overwrite_object(env_config, env_yaml_data[flow_train_config.env_name])
+    env_config.update()
+    env = create_env(env_config, device=device)
+    flow_config = FlowConfig.build_from_env(env)
+    overwrite_object(flow_config, model_yaml_data[flow_key])
 
+    print_green(f"Env Config: ")
+    print(env_config)
     print_green(f"Flow Config: ")
     print(flow_config)
     print_green(f"Flow train Config: ")
@@ -183,28 +190,28 @@ if __name__ == '__main__':
 
 
     # Instantiate model
-    flow = Flow(flow_config, device).to(device)
+    flow = Flow(flow_config, device)
     if il_stage:
         flow_trainer = FlowTrainer(flow, flow_train_config)
-        if not train_mode:
+        if not train_mode: # Eval
             flow_trainer.load()
     else:
         flow_trainer = RLTrainer(flow, flow_train_config)
-        if not train_mode:
+        if not train_mode: # Eval
             flow_trainer.load(None if flow_train_config.load_idx is None else flow_train_config.load_idx)
 
     # Train or Eval
     if il_stage:
         if train_mode:
             il_train(flow_trainer)
-        else:
-            eval(env.spec.id, flow_trainer, eval_num=eval_num, render=args.vis)
+        else: # Eval
+            eval(env_config, flow_trainer, eval_num=eval_num, render=args.vis)
     else:
         if train_mode:
             rl_train(flow_trainer)
-        else:
+        else: # Eval
             flow_trainer.flow.config.use_ode = True
-            eval(env.spec.id, flow_trainer, eval_num=eval_num, render=args.vis)
+            eval(env_config, flow_trainer, eval_num=eval_num, render=args.vis)
     
     env.close()
     

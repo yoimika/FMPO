@@ -84,8 +84,8 @@ class FlowConfig:
     def build_from_env(env: gym.Env):
         ret_flow_config = FlowConfig()
 
-        obs_dim = env.observation_space.shape[0]
-        action_dim = env.action_space.shape[0]
+        obs_dim = env.observation_space.shape[-1]
+        action_dim = env.action_space.shape[-1]
 
         ret_flow_config.input_dim = obs_dim + action_dim + ret_flow_config.time_embed_dim
         ret_flow_config.output_dim = action_dim
@@ -111,6 +111,9 @@ class Flow(nn.Module):
         self.t_sampler = torch.distributions.Normal(0, 1)
         self.noise_sampler = torch.distributions.Normal(0, 1)
         self.brownian_sampler = torch.distributions.Normal(0, 1)
+
+        self.device = device
+        self.to(device)
 
     def forward(self, obs: Tensor, xt: Tensor, t: Tensor):
         """Forward net.
