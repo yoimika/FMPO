@@ -1,0 +1,38 @@
+# Model
+flow: &base_flow
+  sde_sigma: 0.5
+  time_steps: 10
+  hidden_layers: [256, 256, 256]
+  use_batch_norm_obs: False
+  use_layer_norm_obs: False
+  use_ode: True
+  use_mid_euler: False
+  use_noise_to_supervise: False
+  use_new_t_for_training: False
+
+flow2: &flow2
+  <<: *base_flow
+  hidden_layers: [256, 256, 256, 128]
+
+flow3: &flow3
+  <<: *base_flow
+  hidden_layers: [256, 256, 256, 128, 64]
+
+flow4: &flow4
+  <<: *base_flow
+  hidden_layers: [256, 256, 256, 128, 64, 32]
+
+flow5: 
+  <<: *flow3
+  use_ode: True
+  use_new_t_for_training: True
+
+
+flow_ode:
+  <<: *flow3
+  use_ode: True
+
+flow_sde:
+  <<: *flow3
+  use_ode: False
+  use_mid_euler: True

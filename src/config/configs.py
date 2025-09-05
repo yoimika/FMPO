@@ -15,6 +15,8 @@ class BaseTrainConfig:
     save_dir: str = './save/'
     save_file_name: str = 'model.pth'
 
+    env_name: str = "FetchPickAndPlace-v4"
+
     def get_optimizer(self, params):
         if self.optim_name == "Adam":
             return torch.optim.Adam(params, lr=self.learning_rate)
@@ -53,10 +55,6 @@ class RLTrainConfig(BaseTrainConfig):
 
     base_model_file_name: str = "flow-imitation.pth"
 
-    env_name: str = "FetchPickAndPlace-v4"
-    env_wrapper: list[Wrapper] = field(default_factory=lambda: [
-        RoboticsWrapper,
-    ])
     vectorize_env: bool = True
     num_envs: int = 32
 
@@ -69,7 +67,7 @@ class RLTrainConfig(BaseTrainConfig):
 
     def get_env(self, device: torch.device = torch.device('cpu')):
         if self.vectorize_env:
-            env = create_robotics_env(self.env_name, vec=self.vectorize_env, num_env=self.num_envs, device=device)
+            env = create_env(self.env_name, vec=self.vectorize_env, num_envs=self.num_envs, device=device)
         else:
-            env = create_robotics_env(self.env_name, vec=self.vectorize_env, device=device)
+            env = create_env(self.env_name, vec=self.vectorize_env, device=device)
         return env

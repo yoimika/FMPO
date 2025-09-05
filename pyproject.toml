@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "glfw>=2.9.0",
     "gymnasium-robotics>=1.4.1",
     "gymnasium[atari,box2d,classic-control,mujoco]>=1.2.0",
     "matplotlib>=3.10.5",

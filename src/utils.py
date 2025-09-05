@@ -11,7 +11,7 @@ def print_green(str: str):
 def from_numpy(obj, device=torch.device('cpu')):
     if isinstance(obj, np.ndarray):
         return torch.from_numpy(obj).float().to(device)
-    return obj
+    return torch.tensor(obj).to(device)
 
 def from_tensor(obj):
     if isinstance(obj, torch.Tensor):
