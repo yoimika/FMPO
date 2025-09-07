@@ -43,7 +43,7 @@ class TorchWrapper(gym.Wrapper):
         return from_numpy(obs, self.device).unsqueeze(0), from_dict(info, self.device)
 
     def step(self, action):
-        _action = from_tensor(action.squeeze(0))
+        _action = from_tensor(action.squeeze())
         obs, reward, terminated, truncated, info = self.env.step(_action)
         return from_numpy(obs, self.device).unsqueeze(0), from_numpy(reward, self.device), from_numpy(terminated, self.device), from_numpy(truncated, self.device), from_dict(info, self.device)
 

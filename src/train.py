@@ -74,7 +74,7 @@ class FlowTrainer:
         print("Saved.")
 
     def load(self):
-        self.flow.load_state_dict(torch.load(self.get_file_path()))
+        self.flow.load_state_dict(torch.load(self.get_file_path(), map_location=device))
 
 
 
