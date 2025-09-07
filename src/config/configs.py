@@ -34,11 +34,12 @@ class FlowTrainConfig(BaseTrainConfig):
     save_dir: str = './save/'
     save_file_name: str = 'flow-imitation.pth'
 
-    def get_teacher_dataloader(self):
+    def get_teacher_dataloader(self, env_config: EnvConfig):
+        use_robotics = 'Fetch' in env_config.env_name or 'Hand' in env_config.env_name or 'ShadowHand' in env_config.env_name
         def collate_fn(batch):
             ret_data = {}
             ret_data['observation'] = from_numpy( np.stack(
-                [gym_robotics_observation_concat(item['observation']) for item in batch], axis=0
+                [item['observation'] if not use_robotics else gym_robotics_observation_concat(item['observation']) for item in batch], axis=0
             ) )
             ret_data['action'] = from_numpy( np.stack([item['action'] for item in batch], axis=0) )
             return ret_data

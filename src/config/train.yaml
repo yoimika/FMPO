@@ -32,6 +32,13 @@ il_flow_train4:
   # Attention: Large batch size may lead to overfit which cause poor generalization in test.
   batch_size: 256 
 
+il_flow_train_pendulum:
+  <<: *il_train_cfg
+  optim_name: "AdamW"
+  batch_size: 256
+  teacher_dataset_fp: './save/pendulum-teacher.pkl'
+  env_name: "Pendulum"
+
 # Reinforcement Learning Config
 
 
