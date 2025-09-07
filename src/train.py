@@ -17,12 +17,12 @@ parser.add_argument('--vis', action='store_true', help='Use human render mode, e
 parser.add_argument('--inst_name', default='rl1', help='instance name')
 
 class FlowTrainer:
-    def __init__(self, flow: Flow, config: FlowTrainConfig):
+    def __init__(self, flow: Flow, config: FlowTrainConfig, env_config: EnvConfig):
         self.flow = flow
         self.config = config
 
         self.optim = self.config.get_optimizer(self.flow.parameters())
-        self.dataloader = self.config.get_teacher_dataloader()
+        self.dataloader = self.config.get_teacher_dataloader(env_config)
     
     def single_train_step(self, obs, action):
         """Single train step.
@@ -130,6 +130,7 @@ TRAIN_MAPPING = {
     'il2': ['flow2', 'il_flow_train2'],
     'il3': ['flow3', 'il_flow_train3'],
     'il4': ['flow4', 'il_flow_train4'],
+    'il-pendulum': ['flow3', 'il_flow_train_pendulum'],
 
     'rl1': ['flow5', 'rl_flow_train'],
     'rl_sde': ['flow_sde', 'rl_flow_train_sde'],
@@ -192,7 +193,7 @@ if __name__ == '__main__':
     # Instantiate model
     flow = Flow(flow_config, device)
     if il_stage:
-        flow_trainer = FlowTrainer(flow, flow_train_config)
+        flow_trainer = FlowTrainer(flow, flow_train_config, env_config)
         if not train_mode: # Eval
             flow_trainer.load()
     else:

@@ -43,7 +43,9 @@ class TorchWrapper(gym.Wrapper):
         return from_numpy(obs, self.device).unsqueeze(0), from_dict(info, self.device)
 
     def step(self, action):
-        _action = from_tensor(action.squeeze())
+        if len(action.shape) == 2 and action.shape[0] == 1:
+            action = action.squeeze(0)
+        _action = from_tensor(action)
         obs, reward, terminated, truncated, info = self.env.step(_action)
         return from_numpy(obs, self.device).unsqueeze(0), from_numpy(reward, self.device), from_numpy(terminated, self.device), from_numpy(truncated, self.device), from_dict(info, self.device)
 
@@ -141,9 +143,9 @@ def eval_env(env_config: EnvConfig, flow: Flow, sample_nums: int, device: torch.
                 obs = obs.unsqueeze(0)
             # import pdb; pdb.set_trace()
             action, _ = flow.sample_action(obs)  # (1, action_dim)
-            obs, rew, terminated, truncated, info = env.step(action.cpu().squeeze().numpy())
+            obs, rew, terminated, truncated, info = env.step(action.cpu().squeeze(0).numpy())
             done = (terminated or truncated)
-            success_transitions_count += info['is_success'].sum()
+            # success_transitions_count += info['is_success'].sum()
             all_transitions_count += len(obs)
             raw_traj.append(rew.cpu().numpy() if isinstance(rew, torch.Tensor) else rew)
 
