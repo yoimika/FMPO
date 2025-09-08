@@ -39,6 +39,20 @@ il_flow_train_pendulum:
   teacher_dataset_fp: './save/pendulum-teacher.pkl'
   env_name: "Pendulum"
 
+il_flow_train_pusher:
+  <<: *il_train_cfg
+  optim_name: "AdamW"
+  batch_size: 256
+  teacher_dataset_fp: './save/pusher-teacher.pkl'
+  env_name: "Pusher"
+
+il_flow_train_reacher:
+  <<: *il_train_cfg
+  optim_name: "AdamW"
+  batch_size: 256
+  teacher_dataset_fp: './save/reacher-teacher.pkl'
+  env_name: "Reacher"
+
 # Reinforcement Learning Config
 
 

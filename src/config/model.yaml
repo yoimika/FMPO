@@ -17,6 +17,8 @@ flow2: &flow2
 flow3: &flow3
   <<: *base_flow
   hidden_layers: [256, 256, 256, 128, 64]
+  use_mid_euler: True
+  # use_ode: False
 
 flow4: &flow4
   <<: *base_flow
