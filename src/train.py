@@ -1,13 +1,16 @@
 import torch
+from torch import Tensor
 import numpy as np
-from flow import Flow, FlowConfig
+from flow import Flow, FlowConfig, Transition
 from utils import *
 from tqdm import tqdm
 import os
 from env import *
 from config.configs import FlowTrainConfig, RLTrainConfig
 import argparse
-from algorithm import PPO
+from rollout import *
+from losses import *
+from evals import show_distribution
 
 
 parser = argparse.ArgumentParser()
@@ -39,7 +42,7 @@ class FlowTrainer:
         t = self.flow.t_sampler.sample((B, 1)).to(self.flow.device)
         noise = self.flow.noise_sampler.sample(action.shape).to(self.flow.device)
         
-        cfm_loss = self.flow.compute_cfm_loss(obs, action, noise, t, record_grad=True)
+        cfm_loss = compute_cfm_loss(self.flow, obs, action, noise, t, record_grad=True)
         return cfm_loss
 
     def train(self, epoches):
@@ -82,10 +85,17 @@ class RLTrainer:
     def __init__(self, flow: Flow, config: RLTrainConfig):
         self.flow = flow
         self.config = config
+        if self.config.use_critic and not hasattr(self.flow, 'critic'):
+            self.build_critic()
 
         self.optim = self.config.get_optimizer(self.flow.parameters())
         self.load_base_model()
     
+    def build_critic(self):
+        obs_dim = self.flow.config.input_dim - self.flow.config.output_dim - self.flow.config.time_embed_dim
+        self.critic = make_layers([obs_dim, 64, 64, 32, 1]).to(self.flow.device)
+        self.critic_optim = torch.optim.Adam(self.critic.parameters(), lr=1e-4)
+
     def load_base_model(self):
         if self.config.base_model_file_name:
             fp = os.path.join(self.config.save_dir, self.config.base_model_file_name)
@@ -114,8 +124,45 @@ class RLTrainer:
     # PPO Train
     def train(self):
         env = self.config.get_env(device)
-        if self.config.algorithm == "PPO":
-            PPO(self.flow, env, self.config, self.optim, self)
+
+        assert self.config.episode_length % (env.spec.max_episode_steps * self.config.num_envs) == 0
+        iter_num = self.config.episode_length // env.spec.max_episode_steps // self.config.num_envs
+        pbar = tqdm( range(self.config.epoches) )
+
+        for i in pbar:
+            pbar.set_description("Sampling...")
+            rollout_state = rollout(self.flow, env, iter_num, pbar)
+            # import pdb; pdb.set_trace()
+            batches = rollout_state.prepare_batches(self.config.batch_size)
+            pbar.set_description("Training...")
+
+            losses = []
+            for batch in batches:
+                if config.use_critic:
+                    loss, critic_loss = compute_fpo_loss(self.flow, batch, config, self.critic)
+                else:
+                    loss = compute_fpo_loss(self.flow, batch, config)
+
+                self.optim.zero_grad()
+                loss.backward(retrain_graph = self.config.use_critic)
+                self.optim.step()
+
+                if self.config.use_critic:
+                    self.critic_optim.zero_grad()
+                    critic_loss.backward()
+                    self.critic_optim.step()
+
+                losses.append(loss.cpu().item())
+            
+            average_reward = rollout_state.reward.mean().item()
+            pbar.set_description(f"Average Reward: {average_reward:.4f}")
+            print(f"Average Reward: {average_reward:.4f}, Average Loss: {losses}", flush=True)
+
+            if i % config.save_interval == 0:
+                if config.save_idx:
+                    trainer.save(i)
+                else:
+                    trainer.save()
         
         self.save()
 
@@ -131,6 +178,8 @@ TRAIN_MAPPING = {
     'il3': ['flow3', 'il_flow_train3'],
     'il4': ['flow4', 'il_flow_train4'],
     'il-pendulum': ['flow3', 'il_flow_train_pendulum'],
+    'il-reacher': ['flow3', 'il_flow_train_reacher'],
+    'il-pusher': ['flow3', 'il_flow_train_pusher'],
 
     'rl1': ['flow5', 'rl_flow_train'],
     'rl_sde': ['flow_sde', 'rl_flow_train_sde'],
@@ -206,7 +255,8 @@ if __name__ == '__main__':
         if train_mode:
             il_train(flow_trainer)
         else: # Eval
-            eval(env_config, flow_trainer, eval_num=eval_num, render=args.vis)
+            show_distribution(flow_trainer.flow, env_config)
+            # eval(env_config, flow_trainer, eval_num=eval_num, render=args.vis)
     else:
         if train_mode:
             rl_train(flow_trainer)
