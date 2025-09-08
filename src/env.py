@@ -71,6 +71,7 @@ class EnvConfig:
     num_envs: int = 32
     render_mode: str = None
     wrappers: list[gym.Wrapper] = field(default_factory=lambda: [])
+    env_gamma: float = 0.95
 
     def update(self):
         assert self.vectorize_env is False or self.render_mode is not None, "Vectorized env must have no render_mode"
@@ -90,7 +91,6 @@ def create_env(env_config: EnvConfig, device: torch.device = torch.device('cpu')
             env = wrapper(env)
         env = TorchWrapper(env, device=device)
     return env
-
 
 # def create_robotics_env(env_name: str, vec: bool, render: bool = False, mp4: bool = False, num_env: int = 1, device: torch.device = torch.device('cpu')):
 #     """

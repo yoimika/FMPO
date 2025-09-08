@@ -1,4 +1,7 @@
 import torch
+import numpy as np
+import torch.nn as nn
+import pickle
 
 def compute_cfm_loss(flow, obs, x0, noise, t, record_grad: bool=False):
     """Compute conditional flow matching loss
@@ -38,18 +41,18 @@ def compute_critic_value(critic, obs, return_grad: bool = False):
         return ret_value.detach()
     
 
-def compute_adv_value(critic, transition):
+def compute_adv_value(critic, transition, gamma):
     """(B, 1)"""
     if critic is None:
         return transition.reward
     else:
         curr_value = compute_critic_value(critic, transition.obs)
         next_value = compute_critic_value(critic, transition.next_obs)
-        adv = transition.reward + flow.config.gamma * next_value * (1 - transition.done)
+        adv = transition.reward + gamma * next_value * (1 - transition.done)
         return adv - curr_value
 
 
-def compute_fpo_loss(flow, transition, train_config, critic = None):
+def compute_fpo_loss(flow, transition, train_config, env_config, critic = None):
     """Compute fpo loss.
 
     Args:
@@ -58,8 +61,8 @@ def compute_fpo_loss(flow, transition, train_config, critic = None):
     Returns: 
         torch.Tensor: FPO loss
     """
-    adv = compute_adv_value(critic, transition)
-    if True:
+    adv = compute_adv_value(critic, transition, env_config.env_gamma)
+    if False:
         adv = (adv - adv.mean()) / (adv.std() + 1e-8)
 
     cfm_loss = compute_cfm_loss(flow, transition.obs, transition.action, transition.action_info.x1, transition.action_info.t, record_grad=True).squeeze(dim=-1)
@@ -85,3 +88,44 @@ def compute_fpo_loss(flow, transition, train_config, critic = None):
         return loss, critic_loss
 
     return loss
+
+def compute_return(flow, env, device:torch.device = torch.device('cpu'), sample_nums: int = 20, gamma: float = 0.95):
+    with torch.no_grad():
+        rets = []
+        while sample_nums:
+            obs, _ = env.reset()
+            done = torch.zeros(0, dtype=torch.float32)
+            rews = []
+            while not done.sum():
+                if len(obs.shape) == 1:
+                    obs = obs.unsqueeze(0)
+                action, _ = flow.sample_action(obs.to(device))  # (1, action_dim)
+                obs, rew, terminated, truncated, info = env.step(action.cpu().squeeze(0).numpy())
+                done = (terminated + truncated)
+                rews.append(rew.cpu().numpy() if isinstance(rew, torch.Tensor) else rew)
+            
+            for i in reversed(range(len(rews))):
+                rews[i] = rews[i] + (rews[i+1] if i+1 < len(rews) else 0) * gamma
+            rets.append(rews[0])
+
+            sample_nums -= 1
+    
+    rets = torch.tensor(rets)
+    return rets.mean().item(), rets.std().item()
+
+
+def compute_expert_return(expert_fp: str):
+    data = pickle.load(open(expert_fp, 'rb'))
+
+    rets = []
+    for traj in data:
+        ret = 0
+        for transition in reversed(traj):
+            ret = transition['reward'] + ret * 0.95
+        rets.append(ret)
+    
+    print("Expert Average Return: %.2f ± %.2f"%(np.mean(rets), np.std(rets)))
+
+if __name__ == '__main__':
+    fp = './save/pendulum-teacher.pkl'
+    compute_expert_return(fp)

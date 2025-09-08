@@ -1,7 +1,7 @@
 import torch
 from torch import Tensor
 import numpy as np
-from flow import Flow, FlowConfig, Transition
+from flow import Flow, FlowConfig, Transition, make_layers
 from utils import *
 from tqdm import tqdm
 import os
@@ -82,9 +82,10 @@ class FlowTrainer:
 
 
 class RLTrainer:
-    def __init__(self, flow: Flow, config: RLTrainConfig):
+    def __init__(self, flow: Flow, config: RLTrainConfig, env_config: EnvConfig):
         self.flow = flow
         self.config = config
+        self.env_config = env_config
         if self.config.use_critic and not hasattr(self.flow, 'critic'):
             self.build_critic()
 
@@ -98,7 +99,12 @@ class RLTrainer:
 
     def load_base_model(self):
         if self.config.base_model_file_name:
-            fp = os.path.join(self.config.save_dir, self.config.base_model_file_name)
+            if len(self.config.save_dir.split('/')) == 3:
+                save_dir = os.path.dirname(self.config.save_dir)
+            else:
+                save_dir = self.config.save_dir
+            base_model_name = self.config.env_name + '-il.pth'
+            fp = os.path.join(save_dir, base_model_name)
             self.flow.load_state_dict(torch.load(fp))
         print_green(f"Base Model Loaded Successfully. {fp}")
     
@@ -120,10 +126,20 @@ class RLTrainer:
         print(f"Load model fp: {loaded_fp}")
         state_dict = torch.load(loaded_fp, map_location=device)
         self.flow.load_state_dict(state_dict)
+
+    def evaluate_return(self, sample_nums: int = 20):
+        test_env = create_env(env_config, device=device)
+        ret_mean, ret_std = compute_return(self.flow, test_env, device=device, sample_nums=sample_nums, gamma=self.env_config.env_gamma)
+        test_env.close()
+        return ret_mean, ret_std
     
     # PPO Train
     def train(self):
-        env = self.config.get_env(device)
+        init_mean, init_std = self.evaluate_return(sample_nums=20)
+        print("Initial Average Return: %.2f ± %.2f"%(init_mean, init_std))
+
+        env_config = replace(self.env_config, num_envs=self.config.num_envs)
+        env = create_env(env_config, device=device)
 
         assert self.config.episode_length % (env.spec.max_episode_steps * self.config.num_envs) == 0
         iter_num = self.config.episode_length // env.spec.max_episode_steps // self.config.num_envs
@@ -131,20 +147,21 @@ class RLTrainer:
 
         for i in pbar:
             pbar.set_description("Sampling...")
-            rollout_state = rollout(self.flow, env, iter_num, pbar)
-            # import pdb; pdb.set_trace()
+            # (T, num_envs * iter_num, dim)
+            rollout_state = rollout(self.flow, env, iter_num, pbar, self.env_config)
+            # (batch_size, dim) * N
             batches = rollout_state.prepare_batches(self.config.batch_size)
             pbar.set_description("Training...")
 
             losses = []
             for batch in batches:
-                if config.use_critic:
-                    loss, critic_loss = compute_fpo_loss(self.flow, batch, config, self.critic)
+                if self.config.use_critic:
+                    loss, critic_loss = compute_fpo_loss(self.flow, batch, self.config, self.env_config, self.critic)
                 else:
-                    loss = compute_fpo_loss(self.flow, batch, config)
+                    loss = compute_fpo_loss(self.flow, batch, self.config, self.env_config)
 
                 self.optim.zero_grad()
-                loss.backward(retrain_graph = self.config.use_critic)
+                loss.backward(retain_graph=self.config.use_critic)
                 self.optim.step()
 
                 if self.config.use_critic:
@@ -154,15 +171,17 @@ class RLTrainer:
 
                 losses.append(loss.cpu().item())
             
-            average_reward = rollout_state.reward.mean().item()
-            pbar.set_description(f"Average Reward: {average_reward:.4f}")
-            print(f"Average Reward: {average_reward:.4f}, Average Loss: {losses}", flush=True)
+            if i % 10 == 0:
+                pbar.set_description("Evaluating...")
+                ret_mean, ret_std = self.evaluate_return(sample_nums=10)
+                print("Average Return: %.2f ± %.2f"%(ret_mean, ret_std))
 
-            if i % config.save_interval == 0:
-                if config.save_idx:
-                    trainer.save(i)
+
+            if i % self.config.save_interval == 0:
+                if self.config.save_idx:
+                    self.save(i)
                 else:
-                    trainer.save()
+                    self.save()
         
         self.save()
 
@@ -182,9 +201,10 @@ TRAIN_MAPPING = {
     'il-pusher': ['flow3', 'il_flow_train_pusher'],
 
     'rl1': ['flow5', 'rl_flow_train'],
-    'rl_sde': ['flow_sde', 'rl_flow_train_sde'],
-    'rl_gpu': ['flow5', 'rl_flow_train_gpu'],
-    'rl_tmp': ['flow_ode', 'rl_flow_train_tmp'],
+    'rl-sde': ['flow_sde', 'rl_flow_train_sde'],
+    'rl-gpu': ['flow5', 'rl_flow_train_gpu'],
+    'rl-tmp': ['flow_ode', 'rl_flow_train_tmp'],
+    'rl-pendulum': ['flow3', 'rl_flow_train_pendulum'],
 }
 
 def il_train(flow_trainer: FlowTrainer):
@@ -246,7 +266,7 @@ if __name__ == '__main__':
         if not train_mode: # Eval
             flow_trainer.load()
     else:
-        flow_trainer = RLTrainer(flow, flow_train_config)
+        flow_trainer = RLTrainer(flow, flow_train_config, env_config)
         if not train_mode: # Eval
             flow_trainer.load(None if flow_train_config.load_idx is None else flow_train_config.load_idx)
 

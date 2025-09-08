@@ -66,9 +66,4 @@ class RLTrainConfig(BaseTrainConfig):
     save_idx: bool = False
     load_idx: int = None
 
-    def get_env(self, device: torch.device = torch.device('cpu')):
-        if self.vectorize_env:
-            env = create_env(self.env_name, vec=self.vectorize_env, num_envs=self.num_envs, device=device)
-        else:
-            env = create_env(self.env_name, vec=self.vectorize_env, device=device)
-        return env
+    use_critic: bool = False

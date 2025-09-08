@@ -65,6 +65,7 @@ rl_flow_train: &rl_train_cfg
   save_file_name: "flow-rl.pth"
   base_model_file_name: "flow-imitation3.pth"
   algorithm: "PPO"
+  use_critic: False
 
 
 # episode_length = k * 50 * num_envs
@@ -103,3 +104,18 @@ rl_flow_train_tmp:
   save_interval: 10
   save_dir: "./save/flow_rl_tmp"
   load_idx: 0
+
+rl_flow_train_pendulum:
+  <<: *rl_train_cfg
+  episode_length: 51200
+  num_envs: 256
+  batch_size: 3200
+  epoches: 1000
+  save_file_name: "flow-rl-pendulum.pth"
+  save_interval: 10
+  save_dir: "./save/flow_rl_pendulum"
+  env_name: "Pendulum"
+
+  save_idx: True
+  load_idx: 0
+  use_critic: False

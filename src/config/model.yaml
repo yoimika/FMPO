@@ -1,6 +1,6 @@
 # Model
 flow: &base_flow
-  sde_sigma: 0.5
+  sde_sigma: 1.0
   time_steps: 10
   hidden_layers: [256, 256, 256]
   use_batch_norm_obs: False
