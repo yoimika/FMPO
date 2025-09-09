@@ -5,8 +5,9 @@ import torch
 import gymnasium as gym
 from tqdm import tqdm
 import numpy as np
+from copy import deepcopy as dc
 
-def compute_return_to_go(trajectory: list[Transition], gamma=0.95):
+def compute_return(trajectory: list[Transition], gamma=0.95):
     # Reward to go
     rew = 0
     for i in reversed(range(len(trajectory))):
@@ -38,7 +39,7 @@ def rollout(flow: Flow, env: gym.Env, iter: int, pbar: tqdm = None, env_config: 
 
         if pbar:
             pbar.set_description(f"Rollout {i+1}/{iter}")
-        compute_return_to_go(trajectory, env_config.env_gamma)
+        compute_return(trajectory, env_config.env_gamma)
         # import pdb;   pdb.set_trace()
         trajectories.extend(trajectory)
     return RolloutState(trajectories)
@@ -109,6 +110,22 @@ class RolloutState(Transition):
         #     rew = trajectory[i].reward + gamma * rew * (trajectory[i].reward == 0)
         #     trajectory[i].reward = rew
         
-        # 标准化每一个 reward 相当于是 batch normalization
-        mean, std = self.reward.mean(dim=-1, keepdim=True), self.reward.std(dim=-1, keepdim=True) + 1e-5
-        self.reward = (self.reward - mean) / std
+        # # 标准化每一个 reward 相当于是 batch normalization
+        # mean, std = self.reward.mean(dim=-1, keepdim=True), self.reward.std(dim=-1, keepdim=True) + 1e-5
+        # # import pdb; pdb.set_trace()
+        # self.reward = (self.reward - mean) / std
+        # # 不行！因为初始状态不同，你不能保证在同一个时间段的 state 有同等地位。
+
+        # # 用 return 代替 trajectory 的所有 transition 的 reward
+        # self.reward = torch.expand_copy(self.reward_to_go[0:1, ...], self.reward.shape)
+        # mean, std = self.reward.mean(), self.reward.std() + 1e-5
+        # self.reward = (self.reward - mean) / std
+        # # import pdb; pdb.set_trace()
+        # # 这样做的好处是，所有 transition 的 reward 都是同等地位的。
+        # # 但是也不行！因为环境初始化不同，会导致即使是最优的策略，不同的 trajectory 就是会不一样
+
+        # Do Nothing （也许这样是最好的🥲）
+        # 用 critic 就可以完全规避这些情况。因为我们需要衡量的是 action 的价值
+        # 所以希望衡量的标准只和 action 有关，而和 state 无关
+        return
+

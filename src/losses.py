@@ -47,10 +47,20 @@ def compute_adv_value(critic, transition, gamma):
         return transition.reward
     else:
         curr_value = compute_critic_value(critic, transition.obs)
+        # return_value = transition.reward_to_go - curr_value
+        # return return_value
         next_value = compute_critic_value(critic, transition.next_obs)
-        adv = transition.reward + gamma * next_value * (1 - transition.done)
+        adv = transition.reward.unsqueeze(-1) + gamma * next_value * (1 - transition.done.unsqueeze(-1))
         return adv - curr_value
 
+def compute_critic_loss(critic, transition):
+    assert critic is not None, "Critic not built."
+    curr_value = compute_critic_value(critic, transition.obs, return_grad=True).squeeze(dim=-1)
+
+    next_value = compute_critic_value(critic, transition.next_obs).squeeze(dim=-1)
+    critic_loss = nn.MSELoss()(transition.reward + 0.95 * next_value * (1 - transition.done), curr_value)
+    # critic_loss = nn.MSELoss()(curr_value, transition.reward_to_go)
+    return critic_loss
 
 def compute_fpo_loss(flow, transition, train_config, env_config, critic = None):
     """Compute fpo loss.
@@ -62,7 +72,7 @@ def compute_fpo_loss(flow, transition, train_config, env_config, critic = None):
         torch.Tensor: FPO loss
     """
     adv = compute_adv_value(critic, transition, env_config.env_gamma)
-    if False:
+    if True:
         adv = (adv - adv.mean()) / (adv.std() + 1e-8)
 
     cfm_loss = compute_cfm_loss(flow, transition.obs, transition.action, transition.action_info.x1, transition.action_info.t, record_grad=True).squeeze(dim=-1)
@@ -79,12 +89,12 @@ def compute_fpo_loss(flow, transition, train_config, env_config, critic = None):
     surr_loss1 = rho * adv
     surr_loss2 = torch.clip(rho, 1.0 - train_config.clip_epsilon, 1.0 + train_config.clip_epsilon) * adv
 
-    loss = -torch.mean(torch.minimum(surr_loss1, surr_loss2))
+    loss = torch.mean(torch.minimum(surr_loss1, surr_loss2))
 
     # Compute Critic
     if critic is not None:
-        critic_value = compute_critic_value(critic, transition.obs, return_grad=True)
-        critic_loss = nn.MSELoss()(critic_value, transition.reward_to_go)
+        critic_loss = compute_critic_loss(critic, transition)
+        # import pdb; pdb.set_trace()
         return loss, critic_loss
 
     return loss

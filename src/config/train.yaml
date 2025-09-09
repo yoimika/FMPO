@@ -107,9 +107,10 @@ rl_flow_train_tmp:
 
 rl_flow_train_pendulum:
   <<: *rl_train_cfg
+  average_loss_before_exp: True
   episode_length: 51200
   num_envs: 256
-  batch_size: 3200
+  batch_size: 12800
   epoches: 1000
   save_file_name: "flow-rl-pendulum.pth"
   save_interval: 10
@@ -118,4 +119,4 @@ rl_flow_train_pendulum:
 
   save_idx: True
   load_idx: 0
-  use_critic: False
+  use_critic: True

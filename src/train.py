@@ -94,8 +94,8 @@ class RLTrainer:
     
     def build_critic(self):
         obs_dim = self.flow.config.input_dim - self.flow.config.output_dim - self.flow.config.time_embed_dim
-        self.critic = make_layers([obs_dim, 64, 64, 32, 1]).to(self.flow.device)
-        self.critic_optim = torch.optim.Adam(self.critic.parameters(), lr=1e-4)
+        self.critic = make_layers([obs_dim, 256, 256, 64, 32, 1]).to(self.flow.device)
+        self.critic_optim = torch.optim.AdamW(self.critic.parameters(), lr=5e-4)
 
     def load_base_model(self):
         if self.config.base_model_file_name:
@@ -105,7 +105,7 @@ class RLTrainer:
                 save_dir = self.config.save_dir
             base_model_name = self.config.env_name + '-il.pth'
             fp = os.path.join(save_dir, base_model_name)
-            self.flow.load_state_dict(torch.load(fp))
+            self.flow.load_state_dict(torch.load(fp, map_location=device))
         print_green(f"Base Model Loaded Successfully. {fp}")
     
     def get_file_path(self, idx: int = None):
@@ -145,6 +145,23 @@ class RLTrainer:
         iter_num = self.config.episode_length // env.spec.max_episode_steps // self.config.num_envs
         pbar = tqdm( range(self.config.epoches) )
 
+        if self.config.use_critic:
+            # 预训练 critic net，因为 flow 模型是从模仿学习过来的，初始的动作质量还不错
+            pbar.set_description("Pretrain Critic...")
+            pretrain_epoches = 300
+            for i in range(pretrain_epoches):
+                rollout_state = rollout(self.flow, env, iter_num, None, self.env_config)
+                batches = rollout_state.prepare_batches(self.config.batch_size)
+                critic_losses = []
+                for batch in batches:
+                    critic_loss = compute_critic_loss(self.critic, batch)
+                    self.critic_optim.zero_grad()
+                    critic_loss.backward()
+                    self.critic_optim.step()
+                    critic_losses.append(critic_loss.cpu().item())
+                pbar.set_description(f"Pretrain Critic Epoch {i+1}/{pretrain_epoches}, Loss: {np.mean(critic_losses):.6f}")
+            print(f"Finish pretraining critic.: {np.mean(critic_losses):.6f}")
+
         for i in pbar:
             pbar.set_description("Sampling...")
             # (T, num_envs * iter_num, dim)
@@ -161,7 +178,7 @@ class RLTrainer:
                     loss = compute_fpo_loss(self.flow, batch, self.config, self.env_config)
 
                 self.optim.zero_grad()
-                loss.backward(retain_graph=self.config.use_critic)
+                loss.backward()
                 self.optim.step()
 
                 if self.config.use_critic:
@@ -268,7 +285,7 @@ if __name__ == '__main__':
     else:
         flow_trainer = RLTrainer(flow, flow_train_config, env_config)
         if not train_mode: # Eval
-            flow_trainer.load(None if flow_train_config.load_idx is None else flow_train_config.load_idx)
+            flow_trainer.load(flow_train_config.load_idx)
 
     # Train or Eval
     if il_stage:
