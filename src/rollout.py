@@ -45,7 +45,9 @@ def rollout(flow: Flow, env: gym.Env, iter: int, pbar: tqdm = None, env_config: 
     return RolloutState(trajectories)
 
 class RolloutState(Transition):
-    def __init__(self, transitions: list[Transition]):
+    def __init__(self, transitions: list[Transition]=None):
+        if transitions is None or len(transitions) == 0:
+            return
         def stack_tensor(attr):
             return torch.stack(attr, dim=0)
         self.obs = stack_tensor([t.obs for t in transitions])
@@ -62,6 +64,13 @@ class RolloutState(Transition):
         
         self.post_reward_handle()
     
+    @classmethod
+    def from_dict(cls, **kwargs):
+        ret_value = RolloutState()
+        for key, value in kwargs.items():
+            setattr(ret_value, key, value)
+        return ret_value
+
     def prepare_batches(self, batch_size):
         T, B, _ = self.obs.shape
         # print(T, B)
@@ -82,9 +91,12 @@ class RolloutState(Transition):
         cfm_loss = _prepare_single_batches(self.action_info.cfm_loss)
         t = _prepare_single_batches(self.action_info.t)
         x1 = _prepare_single_batches(self.action_info.x1)
+        if hasattr(self.action_info, 'adv'):
+            adv = _prepare_single_batches(self.action_info.adv)
+            setattr(self.action_info, 'adv', adv)
 
-        return [
-            Transition(
+        ret_value = [
+            RolloutState.from_dict(
                 obs=obs[i], 
                 next_obs=next_obs[i], 
                 action=action[i], 
@@ -98,6 +110,11 @@ class RolloutState(Transition):
                 )
             ) for i in range(length)
         ]
+
+        if hasattr(self.action_info, 'adv'):
+            for i in range(length):
+                setattr(ret_value[i].action_info, 'adv', adv[i])
+        return ret_value
     
     def post_reward_handle(self):
         """对 reward (T, B) 做一些处理"""

@@ -166,10 +166,14 @@ class RLTrainer:
             pbar.set_description("Sampling...")
             # (T, num_envs * iter_num, dim)
             rollout_state = rollout(self.flow, env, iter_num, pbar, self.env_config)
+            adv = compute_adv_value(self.critic, rollout_state, self.env_config.env_gamma)
+            adv = (adv - adv.mean()) / (adv.std() + 1e-8)
+            setattr(rollout_state.action_info, 'adv', adv)
             # (batch_size, dim) * N
             batches = rollout_state.prepare_batches(self.config.batch_size)
             pbar.set_description("Training...")
 
+            # Inner update
             losses = []
             for batch in batches:
                 if self.config.use_critic:
@@ -189,9 +193,9 @@ class RLTrainer:
                 losses.append(loss.cpu().item())
             
             if i % 10 == 0:
-                pbar.set_description("Evaluating...")
+                pbar.set_description(f"Evaluating at {i}/{self.config.epoches}...")
                 ret_mean, ret_std = self.evaluate_return(sample_nums=10)
-                print("Average Return: %.2f ± %.2f"%(ret_mean, ret_std))
+                print("Average Return: %.2f ± %.2f"%(ret_mean, ret_std), flush=True)
 
 
             if i % self.config.save_interval == 0:
